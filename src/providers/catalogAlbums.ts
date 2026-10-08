@@ -15,9 +15,18 @@ export const looseFold = (x: string) =>
 const SOUNDTRACKY = /soundtrack|\bost\b|motion picture|original score|film score|\bscore\b|jukebox|music from/i;
 
 /** An album belongs to the film when its name contains the whole film title (accent/spelling tolerant). */
-export function isFilmAlbum(filmTitle: string, albumName: string): boolean {
-  const film = looseFold(filmTitle);
-  return film.length >= 3 && looseFold(albumName).includes(film);
+export function isFilmAlbum(filmTitle: string, albumName: string, alts: string[] = []): boolean {
+  const name = looseFold(albumName);
+  return [filmTitle, ...alts].some((t) => { const film = looseFold(t); return film.length >= 3 && name.includes(film); });
+}
+
+/** Do two artist credits name the same person? Tolerates initials, punctuation, doubled letters ("M.M. Keeravaani" ~ "M. M. Keeravani"). */
+export function artistMatches(a: string, b: string): boolean {
+  const fa = looseFold(a); const fb = looseFold(b);
+  if (!fa || !fb) return false;
+  if (fa === fb) return true;
+  const [short, long] = fa.length <= fb.length ? [fa, fb] : [fb, fa];
+  return short.length >= 5 && new RegExp(`(^| )${short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( |$)`).test(long);
 }
 
 const GENERIC_WORDS = /\b(extended|background|original|motion|picture|soundtrack|score|ost|music|from|the|film|movie|album|tracklist|track|listing|volume|vol|part)\b/g;
@@ -51,8 +60,8 @@ export function extraAlbumNames(sectionNames: string[]): string[] {
 }
 
 /** Playlists are looser: a numbered sequel may drop its subtitle ("Baahubali 2 songs"), but a bare franchise name may not. */
-export function isFilmPlaylist(filmTitle: string, name: string): boolean {
-  if (isFilmAlbum(filmTitle, name)) return true;
+export function isFilmPlaylist(filmTitle: string, name: string, alts: string[] = []): boolean {
+  if (isFilmAlbum(filmTitle, name, alts)) return true;
   const head = looseFold(filmTitle.split(':')[0]!);
   return head.length >= 4 && /\d/.test(head) && looseFold(name).includes(head);
 }
@@ -77,13 +86,23 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
   const apple = async (url: string) => { await appleWait(); return json(url); };
   const deezer = async (url: string) => { await deezerWait(); return json(url); };
 
-  async function findAlbums(film: string, year?: number, extraNames: string[] = []): Promise<CatalogAlbum[]> {
-    return remember(`albums|${looseFold(film)}|${year ?? ''}|${extraNames.map(looseFold).join('+')}`, async () => {
+  async function findAlbums(film: string, year?: number, extraNames: string[] = [], alts: string[] = []): Promise<CatalogAlbum[]> {
+    return remember(`albums|${looseFold(film)}|${year ?? ''}|${extraNames.map(looseFold).join('+')}|${alts.map(looseFold).join('+')}`, async () => {
       const [a, d, p] = await Promise.allSettled([
         apple(`https://itunes.apple.com/search?${new URLSearchParams({ term: `${film} soundtrack`, entity: 'album', limit: '25' })}`),
         deezer(`https://api.deezer.com/search/album?${new URLSearchParams({ q: film, limit: '25' })}`),
         deezer(`https://api.deezer.com/search/playlist?${new URLSearchParams({ q: `${film} soundtrack`, limit: '15' })}`),
       ]);
+      // Catalogs often use the original-language or romanized title ("Tensei shitara Slime Datta Ken"): search those too.
+      const altApple: any[] = []; const altDeezer: any[] = [];
+      for (const alt of alts.slice(0, 2)) {
+        const [aa, ad] = await Promise.allSettled([
+          apple(`https://itunes.apple.com/search?${new URLSearchParams({ term: `${alt} soundtrack`, entity: 'album', limit: '25' })}`),
+          deezer(`https://api.deezer.com/search/album?${new URLSearchParams({ q: alt, limit: '25' })}`),
+        ]);
+        if (aa.status === 'fulfilled') altApple.push(...(aa.value.results ?? []));
+        if (ad.status === 'fulfilled') altDeezer.push(...(ad.value.data ?? []));
+      }
       // Albums that Wikipedia names (e.g. "... - Volume 1..10"): one search per distinct name, accepted when the album name starts with it.
       const extraApple: any[] = []; const extraDeezer: any[] = [];
       for (const name of extraNames) {
@@ -96,16 +115,16 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
       }
       if (a.status === 'rejected' && d.status === 'rejected' && p.status === 'rejected') throw new Error('Apple Music and Deezer lookups failed');
       const out: CatalogAlbum[] = [];
-      if (a.status === 'fulfilled') {
-        for (const r of a.value.results ?? []) {
-          if (!r.collectionId || !isFilmAlbum(film, String(r.collectionName ?? '')) || (r.trackCount ?? 0) < 2) continue;
+      if (a.status === 'fulfilled' || altApple.length) {
+        for (const r of [...(a.status === 'fulfilled' ? a.value.results ?? [] : []), ...altApple]) {
+          if (!r.collectionId || !isFilmAlbum(film, String(r.collectionName ?? ''), alts) || (r.trackCount ?? 0) < 2) continue;
           out.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album' });
         }
       }
       const seen = new Set(out.map((x) => looseFold(x.name)));
-      if (d.status === 'fulfilled') {
-        for (const r of d.value.data ?? []) {
-          if (!r.id || !isFilmAlbum(film, String(r.title ?? '')) || (r.nb_tracks ?? 0) < 2 || seen.has(looseFold(String(r.title)))) continue;
+      if (d.status === 'fulfilled' || altDeezer.length) {
+        for (const r of [...(d.status === 'fulfilled' ? d.value.data ?? [] : []), ...altDeezer]) {
+          if (!r.id || !isFilmAlbum(film, String(r.title ?? ''), alts) || (r.nb_tracks ?? 0) < 2 || seen.has(looseFold(String(r.title)))) continue;
           seen.add(looseFold(String(r.title)));
           out.push({ platform: 'deezer', id: String(r.id), name: String(r.title), artist: String(r.artist?.name ?? ''), art: r.cover_medium ? String(r.cover_medium) : undefined, url: String(r.link ?? ''), trackCount: r.nb_tracks, kind: 'album' });
         }
@@ -127,7 +146,7 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
       const playlists: CatalogAlbum[] = [];
       if (p.status === 'fulfilled') {
         for (const r of p.value.data ?? []) {
-          if (!r.id || !isFilmPlaylist(film, String(r.title ?? '')) || (r.nb_tracks ?? 0) < 5 || (r.nb_tracks ?? 0) > 120) continue;
+          if (!r.id || !isFilmPlaylist(film, String(r.title ?? ''), alts) || (r.nb_tracks ?? 0) < 5 || (r.nb_tracks ?? 0) > 120) continue;
           playlists.push({ platform: 'deezer-playlist', id: String(r.id), name: String(r.title), artist: String(r.user?.name ?? 'a Deezer user'), art: r.picture_medium ? String(r.picture_medium) : undefined, url: String(r.link ?? ''), trackCount: r.nb_tracks, kind: 'playlist' });
           if (playlists.length >= 3) break;
         }

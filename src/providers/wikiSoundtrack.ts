@@ -27,7 +27,12 @@ const plain = (html: string) =>
     .replace(/\[[^\]]{0,12}\]/g, '') // [1] [a] [edit]
     .replace(/\s+/g, ' ')
     .trim();
-const stripQuotes = (s: string) => s.replace(/^["“”'‘’«]+|["“”'‘’»]+$/g, '').trim();
+// '"Kingdom Teaser OST" (Lyrics: Choir)' -> 'Kingdom Teaser OST (Lyrics: Choir)': keep notes, drop the quote marks around the title.
+const stripQuotes = (s: string) => {
+  const m = /^["“”«]\s*([^"“”»]+?)\s*["“”»]\s*(.*)$/.exec(s.trim());
+  if (m) return (m[1]! + (m[2] ? ' ' + m[2] : '')).trim();
+  return s.replace(/^["“”'‘’«]+|["“”'‘’»]+$/g, '').trim();
+};
 
 export function parseLength(s: string): number | undefined {
   const m = /^(?:(\d+):)?(\d{1,2}):(\d{2})$/.exec(s.trim());
@@ -111,8 +116,8 @@ export function wikiSoundtrack(userAgent: string, fetchImpl: typeof fetch = fetc
     return parseTracklists(String(d.parse?.text ?? ''));
   };
   return {
-    async find(title0: string, year?: number): Promise<Soundtrack | null> {
-      const variants = titleVariants(title0);
+    async find(title0: string, year?: number, alts: string[] = []): Promise<Soundtrack | null> {
+      const variants = [...new Set([...titleVariants(title0), ...alts.slice(0, 3).flatMap(titleVariants)])];
       const y = year ? ` (${year}` : '';
       const soundtrackNames = variants.flatMap((title) => [`${title} (soundtrack)`, ...(year ? [`${title}${y} soundtrack)`, `${title}${y} film soundtrack)`] : []), `${title} (film score)`, `${title} (score)`, `${title} (album)`, `${title} (original motion picture soundtrack)`]);
       const found = await existing(soundtrackNames.slice(0, 50));
@@ -124,9 +129,9 @@ export function wikiSoundtrack(userAgent: string, fetchImpl: typeof fetch = fetc
       // Search fallback: a page whose title starts with the film title and mentions soundtrack/score/album.
       const want = foldTitle(title0);
       let hit: string | undefined;
-      for (const v of variants.slice(0, 2)) {
+      for (const v of [...new Set([...variants.slice(0, 2), ...alts.slice(0, 2)])]) {
         const s = await get({ action: 'query', list: 'search', srsearch: `${v} soundtrack`, srlimit: '8', srnamespace: '0' });
-        hit = (s.query?.search ?? []).map((x: any) => String(x.title)).find((t: string) => /soundtrack|score|album/i.test(t) && foldTitle(t).startsWith(want));
+        hit = (s.query?.search ?? []).map((x: any) => String(x.title)).find((t: string) => /soundtrack|score|album/i.test(t) && [want, ...alts.slice(0, 2).map(foldTitle)].some((w) => foldTitle(t).startsWith(w)));
         if (hit) break;
       }
       if (hit) { const r = await tryPage(hit, 'soundtrack'); if (r) return r; }
