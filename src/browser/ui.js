@@ -29,7 +29,7 @@ function landing() {
     el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })),
     el('span', { class: 'loading-label' }, 'Searching...')
   );
-  let timer = 0, seq = 0;
+  let seq = 0;
   const run = async () => {
     const q = input.value.trim();
     const mine = ++seq;
@@ -58,9 +58,8 @@ function landing() {
   input.addEventListener('input', () => {
     const hasValue = input.value.trim().length > 0;
     input.parentElement.querySelector('.search-clear').hidden = !hasValue;
-    clearTimeout(timer);
-    timer = setTimeout(run, 250);
   });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
   const examples = ['That Time I Got Reincarnated as a Slime', 'Jujutsu Kaisen', 'Attack on Titan', 'Naruto'];
   $app.replaceChildren(
     el('section', { class: 'hero' },
@@ -77,7 +76,7 @@ function landing() {
       el('div', { class: 'note try-label' }, 'Try searching'),
       el('div', { class: 'chips' }, examples.map((t) => el('button', { class: 'chip', type: 'button', onclick: () => { input.value = t; input.focus(); run(); } }, t))),
 
-      el('div', { class: 'note mode-note' }, `Media search · ${api.modeLabel}`),
+      el('div', { class: 'note mode-note' }, `Media search · ${api.modeLabel}. Press Enter to search.`),
       settingsPanel(),
     ),
   );
@@ -193,14 +192,20 @@ function settingsPanel() {
   const cur = st.get();
   const live = el('input', { type: 'checkbox', id: 'live' });
   live.checked = !!cur.live;
-  const key = el('input', { type: 'password', id: 'akey', placeholder: 'optional: Anthropic API key (stored only in this browser)', autocomplete: 'off', style: 'width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)' });
+  const tmdb = el('input', { type: 'password', id: 'tmdb', placeholder: 'TMDB API Read Access Token', autocomplete: 'off', style: 'width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)' });
+  tmdb.value = cur.tmdbToken || '';
+  const key = el('input', { type: 'password', id: 'akey', placeholder: 'optional: Anthropic API key', autocomplete: 'off', style: 'width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)' });
   key.value = cur.anthropicKey || '';
   const msg = el('span', { class: 'note' });
-  const save = el('button', { class: 'btn', type: 'button', onclick: () => { st.set({ live: live.checked, anthropicKey: key.value.trim() }); msg.textContent = 'Saved.'; } }, 'Save');
+  const save = el('button', { class: 'btn', type: 'button', onclick: () => {
+    st.set({ live: live.checked, tmdbToken: tmdb.value.trim(), anthropicKey: key.value.trim() });
+    msg.textContent = 'Saved.';
+  } }, 'Save');
   return el('details', { class: 'card' }, el('summary', {}, 'Settings'),
-    el('label', {}, live, ' Use live media-search providers (AniList, Jikan, Wikipedia) directly from this browser'),
-    el('div', { class: 'note' }, 'Your browser cannot set a custom User-Agent; keep usage light. Deezer cannot be called from a browser (no CORS), so platform links stay as search links.'),
-    el('div', { class: 'note' }, 'An API key enables the Wikipedia+AI extractor. It is sent only to api.anthropic.com from this browser, but anyone with access to this browser profile can read it.'),
+    el('label', {}, live, ' Use live music discovery providers'),
+    el('div', { class: 'note' }, 'TMDB powers the fast title search and season list. Add your TMDB API Read Access Token here. It stays in this browser.'),
+    tmdb,
+    el('div', { class: 'note' }, 'TMDB search and season data require your TMDB application credentials.'),
     key, el('div', {}, save, ' ', msg));
 }
 
@@ -210,15 +215,44 @@ async function selectPage(id) {
   $app.replaceChildren(
     el('a', { href: '#/' }, '← Back to search'),
     header(media),
-    el('div', { class: 'card' },
-      el('h3', {}, 'Phase 1 · Media found'),
-      el('p', { class: 'note' }, 'MMDE found the title. Start the next step to discover the music connected to it.'),
-      el('div', { class: 'meta' }, `Source IDs: ${Object.entries(media.externalIds || {}).map(([k,v]) => `${k}:${v}`).join(' · ') || 'none'}`),
-      el('button', { class: 'btn', type: 'button', onclick: () => { location.hash = `#/media/${encodeURIComponent(media.id)}`; } }, 'Discover the music')
+    el('div', { class: 'search-loading', 'aria-live': 'polite' },
+      el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })),
+      el('span', { class: 'loading-label' }, media.type === 'tv' ? 'Loading seasons...' : 'Loading title...')
     )
   );
+  if (media.type !== 'tv') {
+    $app.append(
+      el('div', { class: 'card' },
+        el('h3', {}, 'Title found'),
+        el('p', { class: 'note' }, 'This is a movie. Movies do not have seasons.'),
+        el('button', { class: 'btn', type: 'button', onclick: () => { location.hash = `#/media/${encodeURIComponent(media.id)}`; } }, 'Discover the music')
+      )
+    );
+    return;
+  }
+  try {
+    const seasons = await api.getSeasons(media);
+    const body = seasons.length
+      ? seasons.map((s) => el('button', { class: 'season-card', type: 'button', onclick: () => {
+          location.hash = `#/media/${encodeURIComponent(media.id)}?season=${s.seasonNumber}`;
+        } },
+        el('strong', {}, s.name || `Season ${s.seasonNumber}`),
+        el('span', {}, `${s.episodeCount} episodes${s.airDate ? ' · ' + s.airDate.slice(0, 4) : ''}`)
+      ))
+      : [el('div', { class: 'card warn' }, 'No seasons were returned. Add a TMDB API Read Access Token in Settings if you have not already.')];
+    $app.replaceChildren(
+      el('a', { href: '#/' }, '← Back to search'),
+      header(media),
+      el('div', { class: 'card' }, el('h3', {}, 'Seasons'), el('div', { class: 'season-grid' }, body))
+    );
+  } catch (e) {
+    $app.replaceChildren(
+      el('a', { href: '#/' }, '← Back to search'),
+      header(media),
+      el('div', { class: 'card warn' }, `Could not load seasons: ${e.message}`)
+    );
+  }
 }
-
 function route() {
   const select = location.hash.match(/^#\/select\/(.+)$/);
   const m = location.hash.match(/^#\/media\/(.+)$/);
