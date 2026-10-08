@@ -1,5 +1,7 @@
-// MMDE prototype frontend. No dependencies. All dynamic text goes through textContent (no innerHTML).
-const $app = document.getElementById('app');
+// MMDE prototype UI. No dependencies. All dynamic text goes through textContent (no innerHTML).
+// It talks to an `api` object (server or direct-in-browser), see src/browser/*Api.ts.
+let $app;
+let api;
 const mediaCache = new Map(); // id -> media object from search, needed to start a discovery
 
 const el = (tag, attrs = {}, ...kids) => {
@@ -13,12 +15,6 @@ const el = (tag, attrs = {}, ...kids) => {
   return n;
 };
 const safeUrl = (u) => { try { const x = new URL(u); return x.protocol === 'http:' || x.protocol === 'https:' ? x.href : null; } catch { return null; } };
-const api = async (path, opts) => {
-  const r = await fetch(path, opts);
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw Object.assign(new Error(j.error || `HTTP ${r.status}`), { status: r.status });
-  return j;
-};
 const PLATFORM_LABEL = { spotify: 'Spotify', apple: 'Apple Music', youtube: 'YouTube', youtubeMusic: 'YouTube Music', deezer: 'Deezer' };
 const ROLE_FILTERS = ['All', 'Openings', 'Endings', 'Insert Songs', 'Character Songs', 'OST', 'Original Score'];
 
@@ -32,7 +28,7 @@ function landing() {
     const mine = ++seq;
     if (q.length < 2) { suggest.hidden = true; status.textContent = ''; return; }
     try {
-      const r = await api(`/api/search?q=${encodeURIComponent(q)}`);
+      const r = await api.search(q);
       if (mine !== seq) return;
       suggest.replaceChildren(...r.results.map((m) => {
         mediaCache.set(m.id, m);
@@ -53,7 +49,9 @@ function landing() {
       status,
       el('div', { class: 'note' }, 'Try:'),
       el('div', { class: 'chips' }, examples.map((t) => el('button', { class: 'chip', type: 'button', onclick: () => { input.value = t; input.focus(); run(); } }, t))),
-      el('div', { class: 'note' }, 'Offline mode only knows the local sample (Slime). Other titles need the live providers.'),
+      el('div', { class: 'note' }, 'Without live providers only the local sample (Slime) is known. Other titles need live providers.'),
+      el('div', { class: 'note' }, `Mode: ${api.modeLabel}`),
+      settingsPanel(),
     ),
   );
   input.focus();
@@ -128,31 +126,47 @@ async function mediaPage(id) {
   const discover = async (media) => {
     $app.replaceChildren(el('a', { href: '#/' }, '← Back to search'), header(media), el('div', { class: 'note' }, 'Starting discovery...'));
     try {
-      const { jobId } = await api('/api/discover', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ media }) });
-      for (;;) {
-        const job = await api(`/api/jobs/${jobId}`);
+      const result = await api.discover(media, (job) => {
         $app.replaceChildren(el('a', { href: '#/' }, '← Back to search'), header(media), progressView(job));
-        if (job.state === 'error') throw new Error(job.error || 'discovery failed');
-        if (job.state === 'done') break;
-        await new Promise((r) => setTimeout(r, 500));
-      }
-      show(await api(`/api/media/${encodeURIComponent(media.id)}`));
+      });
+      show(result);
     } catch (e) {
       $app.replaceChildren(el('a', { href: '#/' }, '← Back to search'), el('div', { class: 'card warn' }, `Discovery failed: ${e.message}`));
     }
   };
-  try { show(await api(`/api/media/${encodeURIComponent(id)}`)); }
-  catch (e) {
-    if (e.status !== 404) return $app.replaceChildren(el('div', { class: 'card warn' }, e.message));
-    const media = mediaCache.get(id);
-    if (!media) { location.hash = '#/'; return; }
-    discover(media);
-  }
+  let existing = null;
+  try { existing = await api.getResult(id); }
+  catch (e) { return $app.replaceChildren(el('div', { class: 'card warn' }, e.message)); }
+  if (existing) return show(existing);
+  const media = mediaCache.get(id);
+  if (!media) { location.hash = '#/'; return; }
+  discover(media);
+}
+
+function settingsPanel() {
+  const st = api.settings;
+  if (!st) return null;
+  const cur = st.get();
+  const live = el('input', { type: 'checkbox', id: 'live' });
+  live.checked = !!cur.live;
+  const key = el('input', { type: 'password', id: 'akey', placeholder: 'optional: Anthropic API key (stored only in this browser)', autocomplete: 'off', style: 'width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)' });
+  key.value = cur.anthropicKey || '';
+  const msg = el('span', { class: 'note' });
+  const save = el('button', { class: 'btn', type: 'button', onclick: () => { st.set({ live: live.checked, anthropicKey: key.value.trim() }); msg.textContent = 'Saved.'; } }, 'Save');
+  return el('details', { class: 'card' }, el('summary', {}, 'Settings'),
+    el('label', {}, live, ' Use live providers (AniList, MusicBrainz, Wikipedia) directly from this browser'),
+    el('div', { class: 'note' }, 'Your browser cannot set a custom User-Agent; keep usage light. Deezer cannot be called from a browser (no CORS), so platform links stay as search links.'),
+    el('div', { class: 'note' }, 'An API key enables the Wikipedia+AI extractor. It is sent only to api.anthropic.com from this browser, but anyone with access to this browser profile can read it.'),
+    key, el('div', {}, save, ' ', msg));
 }
 
 function route() {
   const m = location.hash.match(/^#\/media\/(.+)$/);
   if (m) mediaPage(decodeURIComponent(m[1])); else landing();
 }
-window.addEventListener('hashchange', route);
-route();
+export function mountUI(root, apiImpl) {
+  $app = root;
+  api = apiImpl;
+  window.addEventListener('hashchange', route);
+  route();
+}

@@ -1,0 +1,94 @@
+import type { DiscoveryResult, Media } from '../domain/types.ts';
+import { organize } from '../app/organize.ts';
+import { aniListResolver } from '../providers/anilist.ts';
+import { curatedProvider, type SeedFile } from '../providers/curated.ts';
+import { musicBrainzResolver } from '../providers/musicbrainz.ts';
+import { seedMediaResolver } from '../providers/seedResolver.ts';
+import type { DiscoveryProvider, MediaResolver } from '../providers/types.ts';
+import { anthropicComplete, wikiLlmProvider } from '../providers/wikiLlm.ts';
+import { normalizeTitle } from '../matching/normalize.ts';
+import { newSteps, runDiscovery, type Step } from '../server/runner.ts';
+import type { Api, ResultView, Settings } from './api.ts';
+
+const SETTINGS_KEY = 'mmde.settings.v1';
+const RESULTS_KEY = 'mmde.results.v1';
+
+function safeStorage(storage?: Storage): Storage | undefined {
+  try {
+    const s = storage ?? globalThis.localStorage;
+    s.getItem('x'); // may throw in private windows / blocked storage
+    return s;
+  } catch { return undefined; }
+}
+
+/**
+ * The whole engine running inside the browser: no server. Providers are called directly
+ * with fetch (AniList, MusicBrainz and Wikipedia allow cross-origin requests; Deezer does not,
+ * so it is not used here and platform links stay as search links).
+ */
+export function createBrowserApi(opts: { seeds: SeedFile[]; fetchImpl?: typeof fetch; storage?: Storage }): Api {
+  const store = safeStorage(opts.storage);
+  const memory = new Map<string, DiscoveryResult>();
+  const f: typeof fetch = opts.fetchImpl ?? ((...a) => fetch(...a));
+
+  const readSettings = (): Settings => {
+    try { return { live: true, anthropicKey: '', ...JSON.parse(store?.getItem(SETTINGS_KEY) ?? '{}') }; }
+    catch { return { live: true, anthropicKey: '' }; }
+  };
+  const readResults = (): Record<string, DiscoveryResult> => {
+    try { return JSON.parse(store?.getItem(RESULTS_KEY) ?? '{}'); } catch { return {}; }
+  };
+  const view = (r: DiscoveryResult): ResultView => ({ ...r, groups: organize(r.tracks) });
+
+  return {
+    modeLabel: 'direct in browser (no server)',
+    settings: {
+      get: readSettings,
+      set: (s) => { try { store?.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* ignore */ } },
+    },
+
+    async search(q) {
+      const st = readSettings();
+      const resolvers: MediaResolver[] = [seedMediaResolver(opts.seeds)];
+      if (st.live) resolvers.push(aniListResolver(f));
+      const results: Media[] = [];
+      const errors: string[] = [];
+      const seen = new Set<string>();
+      for (const r of resolvers) {
+        try {
+          for (const m of await r.search(q)) {
+            const k = normalizeTitle(m.title);
+            if (!seen.has(k)) { seen.add(k); results.push(m); }
+          }
+        } catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
+      }
+      return { results, errors, sources: resolvers.map((r) => r.name) };
+    },
+
+    async getResult(id) {
+      const r = memory.get(id) ?? readResults()[id];
+      return r ? view(r) : null;
+    },
+
+    async discover(media, onJob) {
+      const st = readSettings();
+      const providers: DiscoveryProvider[] = opts.seeds.map((s) => curatedProvider(s));
+      if (st.live && st.anthropicKey) providers.push(wikiLlmProvider({ complete: anthropicComplete(st.anthropicKey, undefined, f, true), fetchImpl: f }));
+      const steps: Step[] = newSteps();
+      const emit = () => onJob({ steps: steps.map((s) => ({ ...s })) });
+      emit();
+      const result = await runDiscovery(
+        media,
+        { providers, recordingResolver: st.live ? musicBrainzResolver(null, f) : undefined, linkResolvers: [] },
+        (key, state, detail) => { const s = steps.find((x) => x.key === key)!; s.state = state; s.detail = detail; emit(); },
+      );
+      memory.set(media.id, result);
+      try {
+        const all = readResults();
+        all[media.id] = result;
+        store?.setItem(RESULTS_KEY, JSON.stringify(all));
+      } catch { /* quota or blocked storage: keep in memory only */ }
+      return view(result);
+    },
+  };
+}

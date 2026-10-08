@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import type { Media, TrackClaim, PartRef, TrackRole, Release } from '../domain/types.ts';
 import { normalizeTitle } from '../matching/normalize.ts';
 import type { DiscoveryProvider } from './types.ts';
@@ -38,7 +37,9 @@ export function seedMatchesMedia(seed: SeedFile, media: Media): boolean {
   return names(media).some((n) => mine.has(n));
 }
 
+/** Node only (lazy import so the browser bundle never pulls in fs). */
 export async function loadSeed(path: string): Promise<SeedFile> {
+  const { readFile } = await import('node:fs/promises');
   return JSON.parse(await readFile(path, 'utf8')) as SeedFile;
 }
 

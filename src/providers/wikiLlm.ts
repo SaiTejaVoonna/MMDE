@@ -43,12 +43,12 @@ export function parseClaims(raw: string, pageText: string, url: string, now: str
   return out;
 }
 
-export function wikiLlmProvider(opts: { complete: Complete; userAgent: string; fetchImpl?: typeof fetch; now?: () => string; maxPages?: number }): DiscoveryProvider {
+export function wikiLlmProvider(opts: { complete: Complete; userAgent?: string; fetchImpl?: typeof fetch; now?: () => string; maxPages?: number }): DiscoveryProvider {
   const f = opts.fetchImpl ?? fetch;
   const now = opts.now ?? (() => new Date().toISOString());
   const api = 'https://en.wikipedia.org/w/api.php';
   const get = async (params: Record<string, string>) => {
-    const res = await f(`${api}?${new URLSearchParams({ format: 'json', ...params })}`, { headers: { 'User-Agent': opts.userAgent } });
+    const res = await f(`${api}?${new URLSearchParams({ format: 'json', origin: '*', ...params })}`, { headers: opts.userAgent ? { 'User-Agent': opts.userAgent } : {} });
     if (!res.ok) throw new Error(`HTTP ${res.status} from Wikipedia`);
     return (await res.json()) as any;
   };
@@ -72,11 +72,11 @@ export function wikiLlmProvider(opts: { complete: Complete; userAgent: string; f
 }
 
 /** Real LLM call via the Anthropic Messages API. Needs ANTHROPIC_API_KEY; untested live. */
-export function anthropicComplete(apiKey: string, model = 'claude-haiku-5-5', fetchImpl: typeof fetch = fetch): Complete {
+export function anthropicComplete(apiKey: string, model = 'claude-haiku-5-5', fetchImpl: typeof fetch = fetch, browser = false): Complete {
   return async (prompt) => {
     const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', ...(browser ? { 'anthropic-dangerous-direct-browser-access': 'true' } : {}) },
       body: JSON.stringify({ model, max_tokens: 4000, messages: [{ role: 'user', content: prompt }] }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} from Anthropic API`);

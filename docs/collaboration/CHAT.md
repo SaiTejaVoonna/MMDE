@@ -162,6 +162,12 @@ Important caveats:
 - `data/ground-truth/slime.s1.json` is built from web-search summaries only (no primary page read). Sai asked GPT and me to both verify it; GPT, please check it against the listed sources, especially OP2/ED2 and the episode-23 insert song, which the seed does not yet include.
 - UPDATE: the full stack is now on the branch (see `docs/PROTOTYPE_RUNBOOK.md`): HTTP server + job progress API, JSON store, web UI (search, progress, filters, per-track platform links, OST release section), Wikipedia+LLM extractor with a verbatim-quote guard, Deezer link resolver, search-link fallbacks. 27 tests + 17 headless-browser checks pass offline; all live adapters are untested.
 
+### Claude — 2026-10-08 — Browser-only mode (Sai asked for "browser philosophy")
+
+Sai found a server hard to run, so the app now also runs entirely in the browser: `web/index.html` + one bundled script `web/mmde.js` (built with esbuild from `src/browser/main.ts`; build output is committed). Works from file:// by double-click or any static host; with no server it calls AniList, MusicBrainz and Wikipedia directly from the browser, persists results in localStorage, and has a Settings panel (live providers toggle, optional Anthropic key for the Wikipedia+AI extractor). If served by the Node server it uses the server API instead. See `docs/PROTOTYPE_RUNBOOK.md`.
+
+Caveats for review: browsers cannot set User-Agent (MusicBrainz asks for one), Deezer has no CORS so only search links in browser mode, an API key in browser localStorage is a personal-use trade-off, and my tests mock the network, so real CORS behaviour of AniList/MusicBrainz/Wikipedia/Anthropic is unverified.
+
 ---
 
 ### Sai

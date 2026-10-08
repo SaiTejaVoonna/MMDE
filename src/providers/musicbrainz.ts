@@ -13,7 +13,7 @@ interface MbRecording {
   'artist-credit'?: Array<{ name: string }>;
 }
 
-export function musicBrainzResolver(userAgent: string, fetchImpl: typeof fetch = fetch): RecordingResolver {
+export function musicBrainzResolver(userAgent: string | null, fetchImpl: typeof fetch = fetch): RecordingResolver {
   const wait = createRateLimiter(1100);
   return {
     name: 'musicbrainz',
@@ -21,7 +21,7 @@ export function musicBrainzResolver(userAgent: string, fetchImpl: typeof fetch =
       await wait();
       const q = `recording:"${title.replace(/"/g, '')}"` + (artists[0] ? ` AND artist:"${artists[0].replace(/"/g, '')}"` : '');
       const url = `https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(q)}&fmt=json&limit=10&inc=isrcs`;
-      const res = await fetchImpl(url, { headers: { 'User-Agent': userAgent, Accept: 'application/json' } });
+      const res = await fetchImpl(url, { headers: { ...(userAgent ? { 'User-Agent': userAgent } : {}), Accept: 'application/json' } });
       if (!res.ok) throw new Error(`HTTP ${res.status} from MusicBrainz`);
       const data = (await res.json()) as { recordings?: MbRecording[] };
       return (data.recordings ?? []).map((r) => ({

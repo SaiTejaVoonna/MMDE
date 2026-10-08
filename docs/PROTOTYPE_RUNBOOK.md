@@ -2,7 +2,14 @@
 
 Personal, non-commercial prototype on branch `prototype/m1-slime`. Proposal only; nothing here is an approved decision.
 
-## Run it
+## Easiest: browser only (no server, no install)
+1. Download the ZIP: https://github.com/SaiTejaVoonna/MMDE/archive/refs/heads/prototype/m1-slime.zip and unzip it.
+2. Double-click `web/index.html`. That is the whole app (one bundled script, `web/mmde.js`).
+3. Search "slime" (works offline). With internet, other titles go through AniList, MusicBrainz and Wikipedia straight from your browser. Open Settings on the landing page to toggle live providers or paste an optional Anthropic API key (enables the Wikipedia+AI extractor; stored only in this browser).
+
+Browser-mode limits: browsers cannot set a custom User-Agent (keep usage light), Deezer cannot be called from a browser (no CORS) so platform links stay as search links, and results are kept in this browser's localStorage. Rebuild the bundle after editing `src/`: `npm run build:web` (dev only; needs `npm install` for esbuild; the built file is committed).
+
+## Optional: run the Node server instead
 The server runs wherever you start it. If you open http://localhost:8787 and get "refused to connect", nothing is running on your machine. Start it locally:
 
 ```
@@ -23,6 +30,7 @@ npm test                  # 27 unit/API tests
 Flags (work on Windows): `--offline`, `--contact=...`, `--port=...`. Env vars (same effect): `PORT`, `MMDE_OFFLINE=1`, `MMDE_CONTACT` (put a real contact in the User-Agent; MusicBrainz requires one), `ANTHROPIC_API_KEY` (+ optional `MMDE_MODEL`) to enable the Wikipedia+LLM extractor.
 
 ## What works / was tested
+- Browser-only mode: 17 checks via `scripts/ui-browser-mode.mjs`, opening `web/index.html` over file:// with AniList, MusicBrainz, Wikipedia and Anthropic mocked at the network layer (so real CORS behaviour is NOT covered; it is assumed from provider docs/memory and must be verified live).
 - Tested here (offline): domain, matching with version guard, pipeline status rules, organizer, evaluator, JSON store, HTTP API (search, discover job with progress, results, validation, path-traversal), the Wikipedia+LLM extractor's anti-hallucination guard (fake fetch + fake LLM), and the web UI in headless Chromium (17 checks via `scripts/ui-smoke.mjs`: search, typeahead, progress, filters, expand, platform links, reload, mobile).
 - **NOT tested live** (sandbox network policy blocked the hosts): AniList, MusicBrainz, Deezer, Wikipedia, Anthropic API adapters. The first live run is the real test.
 
