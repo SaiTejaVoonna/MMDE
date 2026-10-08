@@ -1170,7 +1170,7 @@ ${text}`;
         "section",
         { class: "hero" },
         el("h1", {}, "Know the Title.", el("br"), el("em", {}, "Discover the Music.")),
-        el("p", {}, "Search a title. MMDE finds its openings, endings, inserts and soundtracks, then links you to where the music lives."),
+        el("p", {}, "Search any media title. MMDE first resolves what you mean \u2014 anime, movie, TV show, game or other media. Music comes in Phase 2."),
         el("div", { class: "searchwrap" }, input, suggest),
         status,
         el("div", { class: "note" }, "Try:"),
@@ -1179,7 +1179,7 @@ ${text}`;
           input.focus();
           run();
         } }, t))),
-        el("div", { class: "note" }, `Mode: ${api.modeLabel}`),
+        el("div", { class: "note" }, `Phase 1 \xB7 Media search \xB7 ${api.modeLabel}`),
         settingsPanel()
       )
     );
@@ -1372,7 +1372,7 @@ ${text}`;
       "details",
       { class: "card" },
       el("summary", {}, "Settings"),
-      el("label", {}, live, " Use live providers (AniList, MusicBrainz, Wikipedia) directly from this browser"),
+      el("label", {}, live, " Use live media-search providers (AniList, Jikan, Wikipedia) directly from this browser"),
       el("div", { class: "note" }, "Your browser cannot set a custom User-Agent; keep usage light. Deezer cannot be called from a browser (no CORS), so platform links stay as search links."),
       el("div", { class: "note" }, "An API key enables the Wikipedia+AI extractor. It is sent only to api.anthropic.com from this browser, but anyone with access to this browser profile can read it."),
       key,
