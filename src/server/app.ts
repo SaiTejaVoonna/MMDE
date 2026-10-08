@@ -216,11 +216,13 @@ export function createApp(deps: AppDeps): Server {
         if (title.length < 2 || title.length > 120) return send(res, 400, { error: 'title must be 2-120 characters' });
         const list = (name: string, max: number, len: number) => (url.searchParams.get(name) ?? '').split('|').map((x) => x.trim()).filter((x) => x && x.length <= len).slice(0, max);
         const composers = list('composer', 4, 80); const alts = list('alt', 8, 120);
-        const key = `${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}`;
+        const seasonRaw = url.searchParams.get('season'); const airRaw = url.searchParams.get('seasonYear');
+        const season = seasonRaw && /^\d{1,2}$/.test(seasonRaw) && Number(seasonRaw) >= 1 ? { number: Number(seasonRaw), airYear: airRaw && /^\d{4}$/.test(airRaw) ? Number(airRaw) : undefined } : undefined;
+        const key = `${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}|${season ? season.number + '@' + (season.airYear ?? '') : ''}`;
         const hit = mergedCache.get(key);
         if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value);
         try {
-          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks }, title, year, { composers, alts });
+          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks }, title, year, { composers, alts, season });
           if (!value.partial) { mergedCache.set(key, { at: Date.now(), value }); if (mergedCache.size > 300) mergedCache.delete(mergedCache.keys().next().value as string); }
           return send(res, 200, value);
         } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }

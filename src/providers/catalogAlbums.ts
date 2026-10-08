@@ -5,7 +5,7 @@ import { createRateLimiter } from './types.ts';
 // YouTube and Spotify need API keys to list albums/playlists, so they are not covered here.
 
 export type CatalogPlatform = 'apple' | 'deezer' | 'deezer-playlist';
-export interface CatalogAlbum { platform: CatalogPlatform; id: string; name: string; artist: string; art?: string; url: string; trackCount?: number; kind: 'album' | 'playlist'; /** Found because Wikipedia's tracklist names this album (not because its name contains the film title). */ viaWiki?: boolean }
+export interface CatalogAlbum { platform: CatalogPlatform; id: string; name: string; artist: string; art?: string; url: string; trackCount?: number; kind: 'album' | 'playlist'; /** ISO date when the catalog states one (Apple does). */ releaseDate?: string; /** Found because Wikipedia's tracklist names this album (not because its name contains the film title). */ viaWiki?: boolean }
 export interface CatalogTrack { no: number; title: string; artists: string[]; lengthSec?: number; url: string; id: string; art?: string }
 
 /** Lowercase, accents removed, punctuation -> space, repeated letters collapsed ("Bāhubali" ~ "Baahubali"). */
@@ -118,7 +118,7 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
       if (a.status === 'fulfilled' || altApple.length) {
         for (const r of [...(a.status === 'fulfilled' ? a.value.results ?? [] : []), ...altApple]) {
           if (!r.collectionId || !isFilmAlbum(film, String(r.collectionName ?? ''), alts) || (r.trackCount ?? 0) < 2) continue;
-          out.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album' });
+          out.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', releaseDate: r.releaseDate ? String(r.releaseDate) : undefined });
         }
       }
       const seen = new Set(out.map((x) => looseFold(x.name)));
@@ -126,14 +126,14 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
         for (const r of [...(d.status === 'fulfilled' ? d.value.data ?? [] : []), ...altDeezer]) {
           if (!r.id || !isFilmAlbum(film, String(r.title ?? ''), alts) || (r.nb_tracks ?? 0) < 2 || seen.has(looseFold(String(r.title)))) continue;
           seen.add(looseFold(String(r.title)));
-          out.push({ platform: 'deezer', id: String(r.id), name: String(r.title), artist: String(r.artist?.name ?? ''), art: r.cover_medium ? String(r.cover_medium) : undefined, url: String(r.link ?? ''), trackCount: r.nb_tracks, kind: 'album' });
+          out.push({ platform: 'deezer', id: String(r.id), name: String(r.title), artist: String(r.artist?.name ?? ''), art: r.cover_medium ? String(r.cover_medium) : undefined, url: String(r.link ?? ''), trackCount: r.nb_tracks, kind: 'album', releaseDate: r.release_date ? String(r.release_date) : undefined });
         }
       }
       const viaWiki: CatalogAlbum[] = [];
       for (const r of extraApple) {
         if (!r.collectionId || (r.trackCount ?? 0) < 2 || seen.has(looseFold(String(r.collectionName)))) continue;
         seen.add(looseFold(String(r.collectionName)));
-        viaWiki.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', viaWiki: true });
+        viaWiki.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', viaWiki: true, releaseDate: r.releaseDate ? String(r.releaseDate) : undefined });
       }
       for (const r of extraDeezer) {
         if (!r.id || (r.nb_tracks ?? 0) < 2 || seen.has(looseFold(String(r.title)))) continue;

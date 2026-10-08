@@ -2,6 +2,7 @@ import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { CatalogAlbum, CatalogPlatform, CatalogTrack } from '../providers/catalogAlbums.ts';
 import { artistMatches, extraAlbumNames } from '../providers/catalogAlbums.ts';
 import { trackKey } from './soundtrackMerge.ts';
+import { classifyForSeason } from './seasonScope.ts';
 import { mergeSoundtrack, type AlbumWithTracks, type MergedSoundtrack } from './soundtrackMerge.ts';
 
 export interface SoundtrackSources {
@@ -40,7 +41,7 @@ export function belongsToTitle(album: CatalogAlbum, tracks: CatalogTrack[], comp
   return { ok: false, reason: `artist "${album.artist || 'unknown'}" is not the film's composer (${composers.join(', ')}) and no songs match` };
 }
 
-export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[] } = {}): Promise<MergedSoundtrack> {
+export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[]; season?: { number: number; airYear?: number } } = {}): Promise<MergedSoundtrack> {
   const composers = ctx.composers ?? []; const alts = ctx.alts ?? [];
   const [w, a] = await Promise.allSettled([src.wiki(title, year, alts), src.albums(title, year, undefined, alts)]);
   if (w.status === 'rejected' && a.status === 'rejected') throw w.reason;
@@ -53,6 +54,9 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
     try { const more = await src.albums(title, year, extras, alts); const have = new Set(all.map((x) => `${x.platform}:${x.id}`)); all = [...all, ...more.filter((x) => !have.has(`${x.platform}:${x.id}`))]; }
     catch { partial = true; }
   }
+  // Season requested: albums that name only OTHER seasons are never fetched (saves time and keeps the list clean).
+  let preExcluded = 0;
+  if (ctx.season) { const before = all.length; all = all.filter((x) => classifyForSeason(x.name, x.releaseDate, ctx.season!.number, ctx.season!.airYear) !== 'excluded'); preExcluded = before - all.length; }
   const pick = [...all.filter((x) => x.kind === 'album' && !x.viaWiki).slice(0, MAX_ALBUMS), ...all.filter((x) => x.kind === 'album' && x.viaWiki).slice(0, MAX_WIKI_ALBUMS), ...all.filter((x) => x.kind === 'playlist').slice(0, MAX_PLAYLISTS)];
   const results = await Promise.allSettled(pick.map((album) => withTimeout(src.albumTracks(album.platform, album.id), src.timeoutMs ?? 60_000).then((tracks): AlbumWithTracks => ({ album, tracks }))));
   const fetched: AlbumWithTracks[] = [];
@@ -62,5 +66,5 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
     const v = belongsToTitle(r.value.album, r.value.tracks, composers, wiki);
     if (v.ok) fetched.push(r.value); else skipped.push({ name: r.value.album.name, platform: r.value.album.platform, reason: v.reason });
   }
-  return mergeSoundtrack(wiki, fetched, { partial, composers, skipped });
+  return mergeSoundtrack(wiki, fetched, { partial, composers, skipped, season: ctx.season ? { ...ctx.season, excluded: preExcluded } : undefined });
 }

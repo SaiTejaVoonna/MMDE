@@ -165,19 +165,19 @@
     return Promise.all(Array.from({ length: concurrency }, worker));
   };
 
-  const soundtrackCard = (d) => {
+  const soundtrackCard = (d, scope) => {
     const body = el('div', {});
-    const card = el('div', { class: 'card' }, el('h3', {}, 'Soundtrack'), body);
+    const card = el('div', { class: 'card' }, el('h3', {}, scope ? 'Music for ' + (scope.name || 'Season ' + scope.number) : 'Soundtrack'), body);
     const token = viewToken;
     body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Collecting from Wikipedia, Apple Music and Deezer... (the first time can take up to a minute for big films)')));
     const film = { id: d.id, title: d.title, kind: d.kind, year: d.year, posterPath: d.posterPath };
     const yt = el('a', { href: safeUrl(searchLink('youtube', d.title + ' ' + (d.year || '') + ' soundtrack')), target: '_blank', rel: 'noopener noreferrer' }, 'Search YouTube for the ' + d.title + ' soundtrack');
-    const extra = (d.composers && d.composers.length ? '&composer=' + encodeURIComponent(d.composers.join('|')) : '') + (d.altTitles && d.altTitles.length ? '&alt=' + encodeURIComponent(d.altTitles.join('|')) : '');
+    const extra = (d.composers && d.composers.length ? '&composer=' + encodeURIComponent(d.composers.join('|')) : '') + (d.altTitles && d.altTitles.length ? '&alt=' + encodeURIComponent(d.altTitles.join('|')) : '') + (scope ? '&season=' + scope.number + (scope.airYear ? '&seasonYear=' + scope.airYear : '') : '');
     call('/api/soundtrack-merged?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '') + extra).then((m) => {
       if (token !== viewToken) return;
       if (!m.sections || !m.sections.length) { body.replaceChildren(el('p', { class: 'note' }, 'No soundtrack list was found on Wikipedia, Apple Music or Deezer for this title yet. '), yt); return; }
       const toResolve = [];
-      const sections = m.sections.map((sec, idx) => {
+      const buildSection = (sec, idx) => {
         const rows = sec.tracks.map((t) => {
           const initial = { links: {}, art: t.art };
           if (t.links.apple) initial.links.apple = { url: t.links.apple, kind: 'resolved' };
@@ -194,7 +194,11 @@
         if (idx < 2 && sec.origin !== 'community') det.open = true;
         if (!big) toResolve.push(...rows.filter((r) => r.missing));
         return det;
-      });
+      };
+      const matchSecs = scope ? m.sections.filter((x) => x.scope === 'match') : m.sections;
+      const otherSecs = scope ? m.sections.filter((x) => x.scope !== 'match') : [];
+      const sections = matchSecs.map(buildSection);
+      const otherNodes = otherSecs.map((sec, i) => buildSection(sec, 99 + i));
       const c = m.counts;
       const wrap = el('div', { class: 'tfilter-all tview-cards' });
       const filterChip = (key, label, dot) => el('button', { type: 'button', class: 'chip' + (key === 'all' ? ' active' : ''), onclick: (e) => {
@@ -211,7 +215,10 @@
             el('button', { type: 'button', class: 'chip active', onclick: (e) => { wrap.classList.remove('tview-list'); wrap.classList.add('tview-cards'); e.currentTarget.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === e.currentTarget)); } }, 'Cards'),
             el('button', { type: 'button', class: 'chip', onclick: (e) => { wrap.classList.remove('tview-cards'); wrap.classList.add('tview-list'); e.currentTarget.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === e.currentTarget)); } }, 'List'))),
         el('p', { class: 'note' }, el('span', { class: 'cdot cdot-green' }), 'confirmed by 2+ independent sources   ', el('span', { class: 'cdot cdot-amber' }), 'one source   ', el('span', { class: 'cdot cdot-red' }), 'only in a community playlist. Solid buttons are direct catalog links; dashed ones open a search.'),
+        ...(scope ? [el('p', { class: 'note' }, 'Showing music that belongs to ' + (scope.name || 'Season ' + scope.number) + (scope.airYear ? ' (aired ' + scope.airYear + ')' : '') + '. Albums that name another season are hidden' + (m.season && m.season.excluded ? ' (' + m.season.excluded + ' hidden)' : '') + '.')] : []),
+        ...(scope && !sections.length ? [el('p', { class: 'note' }, 'Nothing was found that is tied to this season yet.')] : []),
         ...sections,
+        ...(otherNodes.length ? [el('details', { class: 'tsection tother' }, el('summary', {}, 'Other music from the whole series, not tied to a season · ' + (otherSecs.reduce((n, x) => n + x.tracks.length, 0) === 1 ? '1 song' : otherSecs.reduce((n, x) => n + x.tracks.length, 0) + ' songs')), el('div', {}, ...otherNodes))] : []),
         ...(m.verified === 'none' ? [el('p', { class: 'note' }, 'We could not verify that these albums belong to this title: no composer credit on TMDB and no Wikipedia tracklist. They were matched by name only, so songs are marked unverified (red) unless two catalogs agree.')] : []),
         ...((m.skipped || []).length ? [el('p', { class: 'note' }, 'Skipped ' + m.skipped.length + (m.skipped.length === 1 ? ' album' : ' albums') + ' with the same name that did not match this title\'s composer: ' + m.skipped.map((x) => x.name).join('; ') + '.')] : []),
         ...(m.partial ? [el('p', { class: 'note' }, 'Some albums were too slow to load, so this list may be incomplete. Reload to try again.')] : []),
@@ -266,6 +273,22 @@
     }
     app.replaceChildren(...stuff);
   };
+  // One season of a series: only music that belongs to it (named seasons, or released around when it aired).
+  const showSeason = (d, sn) => {
+    window.scrollTo(0, 0); viewToken++;
+    const scope = { number: sn.seasonNumber, name: sn.name || ('Season ' + sn.seasonNumber), airYear: sn.airDate ? Number(sn.airDate.slice(0, 4)) : undefined };
+    const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); showDetails({ id: d.id, type: 'tv', title: d.title }); } }, '← Back to ' + d.title);
+    const hero = el('section', { class: 'dhero' },
+      poster(sn.posterPath || d.posterPath, 'w342', 'dposter'),
+      el('div', { class: 'dtext' },
+        el('h2', {}, d.title + ' · ' + scope.name),
+        chips([(sn.episodeCount || 0) + ' episodes', sn.airDate ? 'aired ' + sn.airDate : null, sn.voteAverage ? '★ ' + sn.voteAverage : null]),
+        sn.overview ? el('p', { class: 'overview' }, sn.overview) : null,
+        followButton(d)));
+    const switcher = el('div', { class: 'chips fchips' }, (d.seasons || []).filter((x) => x.seasonNumber >= 1).map((x) =>
+      el('button', { type: 'button', class: 'chip' + (x.seasonNumber === sn.seasonNumber ? ' active' : ''), onclick: () => showSeason(d, x) }, x.name || ('Season ' + x.seasonNumber))));
+    app.replaceChildren(back, hero, switcher, soundtrackCard(d, scope));
+  };
   const showDetails = async (media) => {
     window.scrollTo(0, 0); viewToken++;
     const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); backFn(); } }, '← Back');
@@ -303,11 +326,17 @@
     if (d.kind === 'tv') {
       const seasons = d.seasons || [];
       parts.push(el('div', { class: 'card' }, el('h3', {}, 'Seasons'),
-        el('div', { class: 'tl' }, seasons.map((s) => el('div', { class: 'pcard tlitem' },
-          el('span', { class: 'tlyear' }, s.airDate ? s.airDate.slice(0, 4) : 'TBA'),
-          poster(s.posterPath, 'w342'),
-          el('strong', {}, s.name || ('Season ' + s.seasonNumber)),
-          el('small', {}, (s.episodeCount || 0) + ' episodes' + (s.airDate ? ' · ' + s.airDate.slice(0, 4) : '') + (s.voteAverage ? ' · ★ ' + s.voteAverage : '')))))));
+        el('p', { class: 'note' }, 'Click a season to see only the music that belongs to it.'),
+        el('div', { class: 'tl' }, seasons.map((sn) => {
+          const clickable = sn.seasonNumber >= 1;
+          const card = el(clickable ? 'button' : 'div', clickable ? { type: 'button', class: 'pcard tlitem', onclick: () => showSeason(d, sn) } : { class: 'pcard tlitem' },
+            el('span', { class: 'tlyear' }, sn.airDate ? sn.airDate.slice(0, 4) : 'TBA'),
+            poster(sn.posterPath, 'w342'),
+            el('strong', {}, sn.name || ('Season ' + sn.seasonNumber)),
+            el('small', {}, (sn.episodeCount || 0) + ' episodes' + (sn.voteAverage ? ' · ★ ' + sn.voteAverage : '')),
+            clickable ? el('small', { class: 'tlgo' }, 'Find its music →') : null);
+          return card;
+        }))));
     }
     if (d.kind === 'collection') parts.push(el('div', { class: 'card' }, el('h3', {}, 'Music'), el('p', { class: 'note' }, 'Open a film above to see its soundtrack. Follow the collection to keep all its films in My list.')));
     app.replaceChildren(...parts);

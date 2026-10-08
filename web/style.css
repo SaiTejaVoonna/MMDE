@@ -171,3 +171,7 @@ button.pcard:hover{border-color:#35425d;background:rgba(255,255,255,.03)}
 .tlyear{position:absolute;top:-26px;left:8px;font-size:12px;color:var(--mute);background:var(--panel);padding-right:6px}
 .tlyear::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:-1px}
 .tlitem.current .tlyear{color:var(--accent)}
+
+.tlgo{color:var(--accent);margin-top:2px}
+button.tlitem:hover .tlgo{text-decoration:underline}
+.tother{margin-top:10px}
