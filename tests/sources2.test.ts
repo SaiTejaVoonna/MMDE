@@ -44,6 +44,8 @@ test('mergeSoundtrack: a community-playlist song whose OWN album is named after 
   ] }], { composers: ['Kenichiro Suehiro'], titles: ['Fire Force'] });
   const by = Object.fromEntries(m.sections.flatMap((s) => s.tracks).map((t) => [t.title, t]));
   assert.notEqual(by['Inferno']!.confidence, 'red'); assert.ok(by['Inferno']!.evidence.some((e) => e.source === 'deezer'));
+  const jp = mergeSoundtrack(null, [{ album: pl, tracks: [pt(1, 'Inferno', '炎炎ノ音楽隊〜TVアニメ「炎炎ノ消防隊」オリジナルサウンドトラック〜', ['Mrs. GREEN APPLE'])] }], { composers: ['Kenichiro Suehiro'], titles: ['Fire Force', '炎炎ノ消防隊'] });
+  assert.notEqual(jp.sections[0]!.tracks[0]!.confidence, 'red', 'a distinctive (Japanese) title in the song\'s album name is enough, even when the singer is not the composer');
   assert.equal(by['Random Pick']!.confidence, 'red'); assert.equal(by['Look-alike']!.confidence, 'red', 'right album name but not the composer');
 });
 
