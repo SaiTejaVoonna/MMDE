@@ -72,3 +72,26 @@ test('GET /api/deezer-isrc: validates the id, returns the code, maps failures to
   assert.equal((await fetch(`${on.base}/api/deezer-isrc?id=2`)).status, 502);
   await on.close();
 });
+
+test('wikidataTitleSource.composers: composer of the film, only when the description names the asked year', async () => {
+  const f = (async (u: string) => {
+    const p = new URL(String(u)).searchParams;
+    if (p.get('action') === 'wbsearchentities') return resp({ search: [{ id: 'Q9', description: '2017 film by S. S. Rajamouli' }] });
+    if (p.get('ids') === 'Q9') return resp({ entities: { Q9: { labels: { te: { value: 'బాహుబలి 2' } }, claims: { P86: [{ mainsnak: { datavalue: { value: { id: 'Q3' } } } }] } } } });
+    return resp({ entities: { Q3: { labels: { en: { value: 'M. M. Keeravani' } } } } });
+  }) as unknown as typeof fetch;
+  const wd = wikidataTitleSource('MMDE-test', f);
+  assert.deepEqual(await wd.composers('Baahubali 2', 2017), ['M. M. Keeravani']);
+  assert.deepEqual(await wikidataTitleSource('MMDE-test', f).composers('Baahubali 2', 2019), [], 'a film of another year is never used');
+  assert.deepEqual(await wikidataTitleSource('MMDE-test', f).composers('Baahubali 2'), [], 'no year: not trusted');
+});
+
+test('buildMergedSoundtrack: when TMDB has no composer, the Wikidata composer is used (and labelled), TMDB always wins when present', async () => {
+  const base = { wiki: async () => null, albums: async () => [], albumTracks: async () => [], wikidataComposers: async () => ['M. M. Keeravani'] };
+  const noTmdb = await buildMergedSoundtrack(base, 'Baahubali 2', 2017, {});
+  assert.deepEqual(noTmdb.composers, ['M. M. Keeravani']); assert.equal(noTmdb.composerSource, 'wikidata');
+  const withTmdb = await buildMergedSoundtrack(base, 'Baahubali 2', 2017, { composers: ['Someone Else'] });
+  assert.deepEqual(withTmdb.composers, ['Someone Else']); assert.equal(withTmdb.composerSource, 'tmdb');
+  const fast = await buildMergedSoundtrack(base, 'Baahubali 2', 2017, { fast: true });
+  assert.deepEqual(fast.composers, []); assert.equal(fast.composerSource, undefined, 'fast mode does not call Wikidata');
+});

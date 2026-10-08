@@ -29,7 +29,8 @@ export function acceptCandidate(q: TrackQuery, c: Candidate): boolean {
   // an artist match alone is not enough when the length or the year says it is a different release.
   if (q.lengthSec && c.lengthSec) return Math.abs(q.lengthSec - c.lengthSec) <= 3;
   if (q.year && c.year) return c.year >= q.year - 1 && c.year <= q.year + 2;
-  return true;
+  // Nothing left to tell this release from another one by the same singer: not a verified match, so the song keeps its search link.
+  return false;
 }
 
 /**
