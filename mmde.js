@@ -826,6 +826,9 @@ ${text}`;
       async search(q) {
         return call(`/api/search?q=${encodeURIComponent(q)}`);
       },
+      async getSeasons(media) {
+        return [];
+      },
       async getResult(id) {
         try {
           return await call(`/api/media/${encodeURIComponent(id)}`);
