@@ -1,0 +1,13 @@
+name: live-mb-check
+on:
+  push:
+    branches: [live-mb-check]
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node scripts/live-mb.mjs
