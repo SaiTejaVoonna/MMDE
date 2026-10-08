@@ -9,14 +9,27 @@ import type { MediaResolver } from '../providers/types.ts';
 import { newSteps, runDiscovery, type Deps, type Step } from './runner.ts';
 import type { Store } from './store.ts';
 import { organize } from '../app/organize.ts';
-import { tmdbSeasons } from '../providers/tmdb.ts';
+import { tmdbSeasons, type TmdbSeason } from '../providers/tmdb.ts';
+import { decideCors } from './cors.ts';
+import { clientKey, createRateLimiter, type Limit } from './rateLimit.ts';
 
 export interface AppDeps extends Deps {
   mediaResolvers: MediaResolver[];
   store: Store;
   webRoot: string;
   tmdbToken?: string;
+  /** Exact origins allowed to call the API from another site, e.g. ["https://saitejavoonna.github.io"]. Empty = same-origin only. */
+  allowedOrigins?: string[];
+  /** Trust X-Forwarded-For for rate limiting (only behind a proxy such as Railway). */
+  trustProxy?: boolean;
+  /** Per-client limits. Defaults: 120 API calls/min, 12 discovery jobs/min. */
+  rateLimit?: { general: Limit; discover: Limit };
+  /** Injectable for tests; defaults to the real TMDB season lookup. */
+  seasons?: (media: Media, token: string) => Promise<TmdbSeason[]>;
 }
+
+const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 120 }, discover: { windowMs: 60_000, max: 12 } };
+const TMDB_TV_ID = /^tmdb-tv-\d{1,10}$/;
 
 interface Job { id: string; mediaId: string; state: 'running' | 'done' | 'error'; steps: Step[]; error?: string }
 
@@ -49,22 +62,35 @@ function validMedia(m: any): m is Media {
 
 export function createApp(deps: AppDeps): Server {
   const jobs = new Map<string, Job>();
+  const allowedOrigins = deps.allowedOrigins ?? [];
+  const limits = deps.rateLimit ?? DEFAULT_LIMITS;
+  const generalLimiter = createRateLimiter(limits.general);
+  const discoverLimiter = createRateLimiter(limits.discover);
+  const getSeasons = deps.seasons ?? tmdbSeasons;
 
-  async function search(q: string) {
+  /**
+   * Query resolvers in parallel (results keep resolver order). Optional `sources` (resolver names) narrows the
+   * lookup, e.g. the fast TMDB phase; if none of the requested sources exist on this server (say TMDB has no
+   * credential) all resolvers are used so search still answers.
+   */
+  async function search(q: string, sources?: string[]) {
+    const wanted = sources?.length ? deps.mediaResolvers.filter((r) => sources.includes(r.name)) : [];
+    const used = wanted.length ? wanted : deps.mediaResolvers;
+    const settled = await Promise.allSettled(used.map((r) => r.search(q)));
     const results: Media[] = [];
     const errors: string[] = [];
-    for (const r of deps.mediaResolvers) {
-      try { results.push(...await r.search(q)); }
-      catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
-    }
-        let merged = mergeMediaResults(results);
+    settled.forEach((s, i) => {
+      if (s.status === 'fulfilled') results.push(...s.value);
+      else errors.push(`${used[i]!.name}: ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`);
+    });
+    let merged = mergeMediaResults(results);
     const canonical = merged[0];
-    const anilist = deps.mediaResolvers.find((r) => r.name === 'anilist');
+    const anilist = used.find((r) => r.name === 'anilist');
     if (canonical && anilist) {
       try { merged = mergeMediaResults([...merged, ...(await anilist.search(canonical.title))]); }
       catch (e) { errors.push(`anilist enrichment: ${e instanceof Error ? e.message : String(e)}`); }
     }
-    return { results: merged, errors, sources: deps.mediaResolvers.map((r) => r.name) };
+    return { results: merged, errors, sources: used.map((r) => r.name) };
   }
 
   async function serveStatic(pathname: string, res: ServerResponse) {
@@ -84,13 +110,37 @@ export function createApp(deps: AppDeps): Server {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       const path = url.pathname;
-      if (req.method === 'GET' && path === '/api/health') return send(res, 200, { ok: true, resolvers: deps.mediaResolvers.map((r) => r.name), providers: deps.providers.map((p) => p.name) });
-      if (req.method === 'GET' && path === '/api/search') return send(res, 200, await search(url.searchParams.get('q') ?? ''));
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+
+      if (path.startsWith('/api/')) {
+        // CORS: allowlist only. Cross-origin callers that are not listed are refused before any work is done.
+        const cors = decideCors(req.headers.origin, req.headers.host, allowedOrigins);
+        if (cors.kind === 'denied') return send(res, 403, { error: 'origin not allowed' });
+        if (cors.kind === 'allowed') for (const [k, v] of Object.entries(cors.headers)) res.setHeader(k, v);
+        if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+        // Rate limiting (health is exempt so platform health checks never get a 429).
+        if (path !== '/api/health') {
+          const key = clientKey(req, !!deps.trustProxy);
+          const general = generalLimiter.check(key);
+          const discover = req.method === 'POST' && path === '/api/discover' ? discoverLimiter.check(key) : { ok: true as const };
+          const blocked = !general.ok ? general : !discover.ok ? discover : null;
+          if (blocked && !blocked.ok) {
+            res.setHeader('Retry-After', String(blocked.retryAfterSec));
+            return send(res, 429, { error: 'too many requests, slow down', retryAfterSec: blocked.retryAfterSec });
+          }
+        }
+      }
+
+      if (req.method === 'GET' && path === '/api/health') return send(res, 200, { ok: true, tmdb: !!deps.tmdbToken, cors: allowedOrigins.length > 0, resolvers: deps.mediaResolvers.map((r) => r.name), providers: deps.providers.map((p) => p.name) });
+      if (req.method === 'GET' && path === '/api/search') return send(res, 200, await search(url.searchParams.get('q') ?? '', (url.searchParams.get('sources') ?? '').split(',').map((x) => x.trim()).filter(Boolean)));
       if (req.method === 'GET' && path.startsWith('/api/seasons/')) {
         if (!deps.tmdbToken) return send(res, 503, { error: 'TMDB is not configured on this server' });
         const id = decodeURIComponent(path.slice('/api/seasons/'.length));
+        if (!TMDB_TV_ID.test(id)) return send(res, 400, { error: 'invalid media id (expected tmdb-tv-<number>)' });
         const media = { id, type: 'tv', title: '', altTitles: [], externalIds: { tmdb: id.replace(/^tmdb-tv-/, ''), tmdbType: 'tv' } } as Media;
-        return send(res, 200, { seasons: await tmdbSeasons(media, deps.tmdbToken) });
+        try { return send(res, 200, { seasons: await getSeasons(media, deps.tmdbToken) }); }
+        catch (e) { return send(res, 502, { error: `season lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/media') return send(res, 200, { items: await deps.store.list() });
       if (req.method === 'GET' && path.startsWith('/api/media/')) {
@@ -104,6 +154,7 @@ export function createApp(deps: AppDeps): Server {
         const media = body.media;
         const job: Job = { id: randomUUID(), mediaId: media.id, state: 'running', steps: newSteps() };
         jobs.set(job.id, job);
+        while (jobs.size > 300) jobs.delete(jobs.keys().next().value as string); // bound memory on a public server
         void runDiscovery(media, deps, (key, state, detail) => {
           const s = job.steps.find((x) => x.key === key)!;
           s.state = state; s.detail = detail;

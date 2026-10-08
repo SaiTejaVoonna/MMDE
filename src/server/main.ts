@@ -11,6 +11,7 @@ import { loadSeeds, seedMediaResolver } from '../providers/seeds.ts';
 import { anthropicComplete, wikiLlmProvider } from '../providers/wikiLlm.ts';
 import { deezerResolver } from '../links/platforms.ts';
 import { createApp } from './app.ts';
+import { parseOrigins } from './cors.ts';
 import { jsonStore } from './store.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -39,11 +40,20 @@ if (!offline) {
 }
 
 const port = Number(flag('port') ?? process.env.PORT ?? 8787);
+// Frontend hosted on another site (GitHub Pages): list its exact origin(s). Unset = same-origin only.
+const allowedOrigins = parseOrigins(process.env.MMDE_WEB_ORIGIN);
+// Behind a reverse proxy (Railway) the socket peer is the proxy, so only then trust X-Forwarded-For.
+const trustProxy = process.env.MMDE_TRUST_PROXY === '1' || !!(process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT);
 createApp({
   providers, mediaResolvers, recordingResolver, linkResolvers,
-  tmdbToken,
+  tmdbToken, allowedOrigins, trustProxy,
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),
 }).listen(port, () => {
   console.log(`MMDE prototype on http://localhost:${port}  (${offline ? 'OFFLINE: local seeds only' : 'live providers enabled'})`);
   console.log(`seeds: ${seeds.map((s) => s.media.title).join(', ') || 'none'}`);
+  // Booleans only: never print secret values.
+  console.log(`TMDB configured: ${tmdbToken ? 'yes' : 'NO (set TMDB_READ_ACCESS_TOKEN; /api/seasons will return 503)'}`);
+  console.log(`CORS allowed origins: ${allowedOrigins.length ? allowedOrigins.join(', ') : 'none (same-origin only; set MMDE_WEB_ORIGIN for a separate frontend)'}`);
+  console.log(`trust proxy: ${trustProxy ? 'yes' : 'no'}`);
+  if (process.env.ANTHROPIC_API_KEY && !offline) console.warn('WARNING: ANTHROPIC_API_KEY is set; every public /api/discover call can spend it. Rate limits apply, but consider leaving it unset on a public server.');
 });

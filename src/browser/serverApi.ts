@@ -1,15 +1,16 @@
 import type { Api, ResultView } from './api.ts';
 
 /** Client for the optional Node server (src/server). Used when the page is served over http(s) by it. */
-export function createServerApi(): Api {
+export function createServerApi(baseUrl = ''): Api {
+  const base = baseUrl.replace(/\/+$/, '');
   const call = async (path: string, init?: RequestInit) => {
-    const r = await fetch(path, init);
+    const r = await fetch(base + path, init);
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error((j as { error?: string }).error || `HTTP ${r.status}`), { status: r.status });
     return j;
   };
   return {
-    modeLabel: 'server (http://localhost)',
+    modeLabel: base ? `server (${base})` : 'server (same origin)',
     async search(q) { return call(`/api/search?q=${encodeURIComponent(q)}`) as never; },
     async getSeasons(media) {
       const id = encodeURIComponent(media.id);

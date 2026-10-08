@@ -4,7 +4,7 @@ import type { organize } from '../app/organize.ts';
 
 export type ResultView = DiscoveryResult & { groups: ReturnType<typeof organize> };
 
-export interface Settings { live: boolean; anthropicKey: string; tmdbToken: string }
+export interface Settings { live: boolean; anthropicKey: string }
 
 /** What the UI needs. Implemented by the server client and by the direct-in-browser engine. */
 export interface Api {

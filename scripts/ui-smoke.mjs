@@ -1,3 +1,5 @@
+// STALE: written for the legacy bundle (web/mmde.js). web/index.html now loads web/mmde-phase1.js, so this test already
+// fails on origin/main (verified 2026-10-08). Not run in CI. Kept until the legacy browser-only mode is revived or removed.
 // Browser smoke test. Needs Playwright + Chromium installed (not a project dependency).
 // Usage: MMDE_OFFLINE=1 npm start &  then  PW_NODE_MODULES=/path/to/node_modules node scripts/ui-smoke.mjs ./out
 import { createRequire } from 'node:module';

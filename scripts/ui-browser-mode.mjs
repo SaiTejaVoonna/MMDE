@@ -1,3 +1,5 @@
+// STALE: written for the legacy bundle (web/mmde.js). web/index.html now loads web/mmde-phase1.js, so this test already
+// fails on origin/main (verified 2026-10-08). Not run in CI. Kept until the legacy browser-only mode is revived or removed.
 // Browser-only mode test: opens web/index.html via file:// (NO server) with the four external
 // APIs mocked at the network layer. Verifies the single-file bundle, direct fetch wiring,
 // settings, discovery pipeline, localStorage persistence and the status rules.

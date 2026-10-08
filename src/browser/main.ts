@@ -10,11 +10,13 @@ import { mountUI } from './ui.js';
 async function start() {
   const root = document.getElementById('app')!;
   let api = createBrowserApi({ seeds: [slime as unknown as SeedFile] });
+  // Public deploy-time setting from web/config.js (never a secret): '' = same origin as this page.
+  const base = String((globalThis as { MMDE_CONFIG?: { apiBaseUrl?: string } }).MMDE_CONFIG?.apiBaseUrl ?? '').trim().replace(/\/+$/, '');
   if (location.protocol.startsWith('http')) {
     try {
-      const r = await fetch('/api/health');
-      if (r.ok && (await r.json()).ok) api = createServerApi();
-    } catch { /* static host: stay in direct-browser mode */ }
+      const r = await fetch(base + '/api/health');
+      if (r.ok && (await r.json()).ok) api = createServerApi(base);
+    } catch { /* no reachable backend: stay in direct-browser mode */ }
   }
   mountUI(root, api);
 }

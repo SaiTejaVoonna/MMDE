@@ -125,9 +125,9 @@
       let part = out.find((p) => p.part === label);
       if (!part) out.push(part = { part: label, roles: [] });
       const roleLabel = ROLE_LABEL[t.role];
-      let role = part.roles.find((r) => r.role === roleLabel);
-      if (!role) part.roles.push(role = { role: roleLabel, tracks: [] });
-      role.tracks.push(t);
+      let role2 = part.roles.find((r) => r.role === roleLabel);
+      if (!role2) part.roles.push(role2 = { role: roleLabel, tracks: [] });
+      role2.tracks.push(t);
     }
     return out;
   }
@@ -143,30 +143,80 @@
     };
   }
 
-  // src/providers/anilist.ts
-  var QUERY = `query ($q: String) { Page(perPage: 5) { media(search: $q, type: ANIME) {
-  id idMal seasonYear title { romaji english native } synonyms } } }`;
-  function aniListResolver(fetchImpl = fetch) {
-    const wait = createRateLimiter(1e3);
+  // src/providers/animethemes.ts
+  function role(type) {
+    if (type === "OP") return "opening";
+    if (type === "ED") return "ending";
+    return null;
+  }
+  function partFor(media) {
+    return media.partRef ?? { kind: "whole" };
+  }
+  function animeThemesProvider(fetchImpl = fetch) {
+    const wait = createRateLimiter(700);
     return {
-      name: "anilist",
-      async search(query) {
+      name: "animethemes",
+      async discover(media) {
+        if (media.type !== "anime") return [];
+        const mal = media.externalIds.mal;
+        if (!mal) return [];
+        const query = `query FindAnime($ids: [Int!]) {
+        findAnimeByExternalSite(site: MAL, id: $ids) {
+          id slug
+          title { romaji english native }
+          animethemes {
+            id slug type sequence
+            song { id title { romaji native } performances { relevance alias as artist { id name { main native } } member { id name { main native } } } }
+            animethemeentries { id version episodes notes }
+          }
+        }
+      }`;
         await wait();
-        const res = await fetchImpl("https://graphql.anilist.co", {
+        const res = await fetchImpl("https://graphql.animethemes.moe/", {
           method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ query: QUERY, variables: { q: query } })
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Origin: "https://graphql.animethemes.moe",
+            Referer: "https://graphql.animethemes.moe/",
+            "User-Agent": "MMDE-prototype/0.2"
+          },
+          body: JSON.stringify({ query, variables: { ids: [Number(mal)] }, operationName: "FindAnime" })
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status} from AniList`);
-        const data = await res.json();
-        return (data.data?.Page?.media ?? []).map((m) => ({
-          id: `anilist-${m.id}`,
-          type: "anime",
-          title: m.title.english ?? m.title.romaji ?? m.title.native ?? String(m.id),
-          altTitles: [m.title.romaji, m.title.native, ...m.synonyms ?? []].filter((x) => !!x),
-          year: m.seasonYear ?? void 0,
-          externalIds: { anilist: String(m.id), ...m.idMal ? { mal: String(m.idMal) } : {} }
-        }));
+        if (!res.ok) throw new Error(`HTTP ${res.status} from AnimeThemes GraphQL`);
+        const body = await res.json();
+        if (body.errors?.length && !body.data?.findAnimeByExternalSite?.length) {
+          throw new Error(`GraphQL: ${body.errors.map((e) => e.message ?? "unknown error").join("; ")}`);
+        }
+        const anime = body.data?.findAnimeByExternalSite?.[0];
+        if (!anime) return [];
+        const out = [];
+        const seen = /* @__PURE__ */ new Set();
+        for (const theme of anime.animethemes ?? []) {
+          if (!theme.id || seen.has(theme.id)) continue;
+          seen.add(theme.id);
+          const r = role(theme.type);
+          const title = theme.song?.title?.romaji?.trim() || theme.song?.title?.native?.trim();
+          if (!r || !title) continue;
+          const artists = (theme.song?.performances ?? []).sort((a, b) => (a.relevance ?? 999) - (b.relevance ?? 999)).flatMap((p) => [p.artist?.name?.main, p.artist?.name?.native, p.member?.name?.main, p.member?.name?.native]).map((x) => x?.trim()).filter((x) => !!x).filter((x, i, a) => a.indexOf(x) === i);
+          const position = theme.sequence ? `${theme.type}${theme.sequence}` : theme.type ?? void 0;
+          const entry = (theme.animethemeentries ?? [])[0];
+          const context = [entry?.episodes ? `episodes ${entry.episodes}` : "", entry?.notes ?? ""].filter(Boolean).join("; ");
+          out.push({
+            part: partFor(media),
+            role: r,
+            position,
+            title,
+            artists,
+            evidence: {
+              provider: "animethemes",
+              url: anime.slug ? `https://animethemes.moe/anime/${anime.slug}` : "https://animethemes.moe/",
+              quote: context || void 0,
+              fetchedAt: (/* @__PURE__ */ new Date()).toISOString()
+            }
+          });
+        }
+        return out;
       }
     };
   }
@@ -347,15 +397,15 @@ ${text}`;
     for (const it of items) {
       const title = typeof it.title === "string" ? it.title.trim() : "";
       const quote = typeof it.quote === "string" ? it.quote.trim() : "";
-      const role = it.role;
+      const role2 = it.role;
       const part = it.part;
-      if (!title || !quote || !ROLES.has(role) || !part || !PART_KINDS.has(part.kind ?? "")) continue;
+      if (!title || !quote || !ROLES.has(role2) || !part || !PART_KINDS.has(part.kind ?? "")) continue;
       const nq = normalizeTitle(quote.replace(/\s+/g, " "));
       if (!nq || !haystack.includes(nq)) continue;
       if (!nq.includes(normalizeTitle(title))) continue;
       const artists = Array.isArray(it.artists) ? it.artists.filter((a) => typeof a === "string") : [];
       const ref = { kind: part.kind, ...typeof part.number === "number" ? { number: part.number } : {} };
-      out.push({ part: ref, role, position: typeof it.position === "string" ? it.position : void 0, title, artists, evidence: { provider, url, quote, fetchedAt: now } });
+      out.push({ part: ref, role: role2, position: typeof it.position === "string" ? it.position : void 0, title, artists, evidence: { provider, url, quote, fetchedAt: now } });
     }
     return out;
   }
@@ -446,14 +496,29 @@ ${text}`;
     const part = `${c.part.kind}:${c.part.number ?? "-"}`;
     return [part, c.role, normalizeTitle(c.title), classifyVersion(c.title)].join("|");
   }
+  function discoveryTargets(media) {
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    const add = (m) => {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        out.push(m);
+      }
+    };
+    add(media);
+    for (const related of media.relatedMedia ?? []) add(related);
+    return out;
+  }
   async function collectClaims(media, providers) {
     const errors = [];
     const claims = [];
     for (const p of providers) {
-      try {
-        claims.push(...await p.discover(media));
-      } catch (e) {
-        errors.push(`${p.name}: ${e instanceof Error ? e.message : String(e)}`);
+      for (const target of discoveryTargets(media)) {
+        try {
+          claims.push(...await p.discover(target));
+        } catch (e) {
+          errors.push(target.id === media.id ? `${p.name}: ${e instanceof Error ? e.message : String(e)}` : `${p.name} [${target.title}]: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
     return { claims, errors };
@@ -461,10 +526,7 @@ ${text}`;
   async function buildTracks(media, claims, resolver) {
     const errors = [];
     const groups = /* @__PURE__ */ new Map();
-    for (const c of claims) {
-      const k = groupKey(c);
-      groups.set(k, [...groups.get(k) ?? [], c]);
-    }
+    for (const c of claims) groups.set(groupKey(c), [...groups.get(groupKey(c)) ?? [], c]);
     const tracks = [];
     let n = 0;
     for (const group of groups.values()) {
@@ -560,19 +622,22 @@ ${text}`;
   var msg = (e) => e instanceof Error ? e.message : String(e);
   async function runDiscovery(media, deps, onStep) {
     const errors = [];
-    onStep("media", "done", media.title);
+    const targets = discoveryTargets(media);
+    onStep("media", "done", `${media.title} \xB7 ${targets.length} related productions`);
     onStep("themes", "running");
     const collected = await collectClaims(media, deps.providers);
     errors.push(...collected.errors);
-    onStep("themes", "done", `${collected.claims.length} claims from ${deps.providers.length} sources`);
+    onStep("themes", "done", `${collected.claims.length} claims from ${deps.providers.length} sources across ${targets.length} productions`);
     onStep("releases", "running");
     const releases = [];
     for (const p of deps.providers) {
       if (!p.releases) continue;
-      try {
-        releases.push(...await p.releases(media));
-      } catch (e) {
-        errors.push(`${p.name} (releases): ${msg(e)}`);
+      for (const target of targets) {
+        try {
+          releases.push(...await p.releases(target));
+        } catch (e) {
+          errors.push(`${p.name} (releases) [${target.title}]: ${msg(e)}`);
+        }
       }
     }
     onStep("releases", "done", `${releases.length} releases`);
@@ -589,7 +654,6 @@ ${text}`;
           resolved.push(...await lr.resolve(t));
         } catch (e) {
           errors.push(`${lr.name}: ${msg(e)}`);
-          break;
         }
       }
       tracks.push({ ...t, links: buildLinks(t, resolved) });
@@ -638,58 +702,42 @@ ${text}`;
     const view = (r) => ({ ...r, groups: organize(r.tracks) });
     return {
       modeLabel: "direct in browser (no server)",
-      settings: {
-        get: readSettings,
-        set: (s) => {
-          try {
-            store?.setItem(SETTINGS_KEY, JSON.stringify(s));
-          } catch {
-          }
+      settings: { get: readSettings, set: (s) => {
+        try {
+          store?.setItem(SETTINGS_KEY, JSON.stringify(s));
+        } catch {
         }
-      },
+      } },
+      // Browser-only mode never talks to TMDB: that needs a credential, and credentials live only on the MMDE server.
       async search(q) {
-        const st = readSettings();
-        const resolvers = [seedMediaResolver(opts.seeds)];
-        if (st.live) resolvers.push(aniListResolver(f));
-        const results = [];
-        const errors = [];
-        const seen = /* @__PURE__ */ new Set();
-        for (const r of resolvers) {
-          try {
-            for (const m of await r.search(q)) {
-              const k = normalizeTitle(m.title);
-              if (!seen.has(k)) {
-                seen.add(k);
-                results.push(m);
-              }
-            }
-          } catch (e) {
-            errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }
-        return { results, errors, sources: resolvers.map((r) => r.name) };
+        const results = await seedMediaResolver(opts.seeds).search(q);
+        return { results, errors: [], sources: ["local"] };
       },
       async getResult(id) {
         const r = memory.get(id) ?? readResults()[id];
         return r ? view(r) : null;
       },
+      async getSeasons() {
+        return [];
+      },
       async discover(media, onJob) {
         const st = readSettings();
         const providers = opts.seeds.map((s) => curatedProvider(s));
+        if (st.live) providers.push(animeThemesProvider(f));
         if (st.live && st.anthropicKey) providers.push(wikiLlmProvider({ complete: anthropicComplete(st.anthropicKey, void 0, f, true), fetchImpl: f }));
         const steps = newSteps();
         const emit = () => onJob({ steps: steps.map((s) => ({ ...s })) });
         emit();
-        const result = await runDiscovery(
-          media,
-          { providers, recordingResolver: st.live ? musicBrainzResolver(null, f) : void 0, linkResolvers: [] },
-          (key, state, detail) => {
-            const s = steps.find((x) => x.key === key);
-            s.state = state;
-            s.detail = detail;
-            emit();
-          }
-        );
+        const result = await runDiscovery(media, {
+          providers,
+          recordingResolver: st.live ? musicBrainzResolver(null, f) : void 0,
+          linkResolvers: []
+        }, (key, state, detail) => {
+          const s = steps.find((x) => x.key === key);
+          s.state = state;
+          s.detail = detail;
+          emit();
+        });
         memory.set(media.id, result);
         try {
           const all = readResults();
@@ -703,17 +751,23 @@ ${text}`;
   }
 
   // src/browser/serverApi.ts
-  function createServerApi() {
+  function createServerApi(baseUrl = "") {
+    const base = baseUrl.replace(/\/+$/, "");
     const call = async (path, init) => {
-      const r = await fetch(path, init);
+      const r = await fetch(base + path, init);
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw Object.assign(new Error(j.error || `HTTP ${r.status}`), { status: r.status });
       return j;
     };
     return {
-      modeLabel: "server (http://localhost)",
+      modeLabel: base ? `server (${base})` : "server (same origin)",
       async search(q) {
         return call(`/api/search?q=${encodeURIComponent(q)}`);
+      },
+      async getSeasons(media) {
+        const id = encodeURIComponent(media.id);
+        const result = await call(`/api/seasons/${id}`);
+        return result.seasons;
       },
       async getResult(id) {
         try {
@@ -810,8 +864,13 @@ ${text}`;
     const input = el("input", { class: "search", type: "search", placeholder: "Search a movie, anime, TV show or game...", autocomplete: "off", "aria-label": "Search media" });
     const suggest = el("div", { class: "suggest", hidden: true });
     const status = el("div", { class: "note search-status" });
-    const loading = el("div", { class: "search-loading", hidden: true, "aria-live": "polite" }, el("div", { class: "loading-line" }, el("span", { class: "loading-fill" })), el("span", { class: "loading-label" }, "Searching..."));
-    let timer = 0, seq = 0;
+    const loading = el(
+      "div",
+      { class: "search-loading", hidden: true, "aria-live": "polite" },
+      el("div", { class: "loading-line" }, el("span", { class: "loading-fill" })),
+      el("span", { class: "loading-label" }, "Searching...")
+    );
+    let seq = 0;
     const run = async () => {
       const q = input.value.trim();
       const mine = ++seq;
@@ -833,14 +892,14 @@ ${text}`;
           return el(
             "button",
             { type: "button", onclick: () => {
-              location.hash = `#/media/${encodeURIComponent(m.id)}`;
+              location.hash = `#/select/${encodeURIComponent(m.id)}`;
             } },
             m.title,
             el("small", {}, `${m.type}${m.year ? " \xB7 " + m.year : ""}`)
           );
         }));
         suggest.hidden = r.results.length === 0;
-        status.textContent = r.results.length ? "" : `No results from: ${r.sources.join(", ")}.` + (r.errors.length ? ` Errors: ${r.errors.join("; ")}` : "");
+        status.textContent = r.results.length ? `Found ${r.results.length} matches \xB7 ${r.sources.join(" \xB7 ")}` : "No matching media found.";
       } catch (e) {
         if (mine !== seq) return;
         loading.hidden = true;
@@ -850,8 +909,12 @@ ${text}`;
     input.addEventListener("input", () => {
       const hasValue = input.value.trim().length > 0;
       input.parentElement.querySelector(".search-clear").hidden = !hasValue;
-      clearTimeout(timer);
-      timer = setTimeout(run, 250);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        run();
+      }
     });
     const examples = ["That Time I Got Reincarnated as a Slime", "Jujutsu Kaisen", "Attack on Titan", "Naruto"];
     $app.replaceChildren(
@@ -859,8 +922,22 @@ ${text}`;
         "section",
         { class: "hero" },
         el("h1", {}, "Know the Title.", el("br"), el("em", {}, "Discover the Music.")),
-        el("p", {}, "Search a title. MMDE finds its openings, endings, inserts and soundtracks, then links you to where the music lives."),
-        el("div", { class: "searchwrap" }, input, suggest),
+        el("p", {}, "Search any media title. MMDE identifies the title and finds the music connected to it."),
+        el(
+          "div",
+          { class: "searchwrap" },
+          el("span", { class: "search-icon", "aria-hidden": "true" }),
+          input,
+          el("button", { class: "search-clear", type: "button", hidden: true, "aria-label": "Clear search", onclick: () => {
+            input.value = "";
+            input.focus();
+            suggest.hidden = true;
+            loading.hidden = true;
+            status.textContent = "";
+          } }, "\xD7"),
+          suggest
+        ),
+        loading,
         status,
         el("div", { class: "note try-label" }, "Try searching"),
         el("div", { class: "chips" }, examples.map((t) => el("button", { class: "chip", type: "button", onclick: () => {
@@ -868,8 +945,7 @@ ${text}`;
           input.focus();
           run();
         } }, t))),
-        el("div", { class: "note" }, "Without live providers only the local sample (Slime) is known. Other titles need live providers."),
-        el("div", { class: "note" }, `Mode: ${api.modeLabel}`),
+        el("div", { class: "note mode-note" }, `Media search \xB7 ${api.modeLabel}. Press Enter to search.`),
         settingsPanel()
       )
     );
@@ -1051,7 +1127,7 @@ ${text}`;
     const cur = st.get();
     const live = el("input", { type: "checkbox", id: "live" });
     live.checked = !!cur.live;
-    const key = el("input", { type: "password", id: "akey", placeholder: "optional: Anthropic API key (stored only in this browser)", autocomplete: "off", style: "width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)" });
+    const key = el("input", { type: "password", id: "akey", placeholder: "optional: Anthropic API key", autocomplete: "off", style: "width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)" });
     key.value = cur.anthropicKey || "";
     const msg2 = el("span", { class: "note" });
     const save = el("button", { class: "btn", type: "button", onclick: () => {
@@ -1062,16 +1138,70 @@ ${text}`;
       "details",
       { class: "card" },
       el("summary", {}, "Settings"),
-      el("label", {}, live, " Use live providers (AniList, MusicBrainz, Wikipedia) directly from this browser"),
-      el("div", { class: "note" }, "Your browser cannot set a custom User-Agent; keep usage light. Deezer cannot be called from a browser (no CORS), so platform links stay as search links."),
-      el("div", { class: "note" }, "An API key enables the Wikipedia+AI extractor. It is sent only to api.anthropic.com from this browser, but anyone with access to this browser profile can read it."),
+      el("label", {}, live, " Use live music discovery providers"),
+      el("div", { class: "note" }, "TMDB title search and seasons run on the MMDE server. TMDB credentials are never entered in, or stored by, the browser."),
       key,
       el("div", {}, save, " ", msg2)
     );
   }
+  async function selectPage(id) {
+    const media = mediaCache.get(id);
+    if (!media) {
+      location.hash = "#/";
+      return;
+    }
+    $app.replaceChildren(
+      el("a", { href: "#/" }, "\u2190 Back to search"),
+      header(media),
+      el(
+        "div",
+        { class: "search-loading", "aria-live": "polite" },
+        el("div", { class: "loading-line" }, el("span", { class: "loading-fill" })),
+        el("span", { class: "loading-label" }, media.type === "tv" ? "Loading seasons..." : "Loading title...")
+      )
+    );
+    if (media.type !== "tv") {
+      $app.append(
+        el(
+          "div",
+          { class: "card" },
+          el("h3", {}, "Title found"),
+          el("p", { class: "note" }, "This is a movie. Movies do not have seasons."),
+          el("button", { class: "btn", type: "button", onclick: () => {
+            location.hash = `#/media/${encodeURIComponent(media.id)}`;
+          } }, "Discover the music")
+        )
+      );
+      return;
+    }
+    try {
+      const seasons = await api.getSeasons(media);
+      const body = seasons.length ? seasons.map((s) => el(
+        "button",
+        { class: "chip", type: "button", onclick: () => {
+          location.hash = `#/media/${encodeURIComponent(media.id)}?season=${s.seasonNumber}`;
+        } },
+        el("strong", {}, s.name || `Season ${s.seasonNumber}`),
+        el("span", {}, `${s.episodeCount} episodes${s.airDate ? " \xB7 " + s.airDate.slice(0, 4) : ""}`)
+      )) : [el("div", { class: "card warn" }, "No seasons were returned. Season lookup runs on the MMDE server (it needs TMDB configured there).")];
+      $app.replaceChildren(
+        el("a", { href: "#/" }, "\u2190 Back to search"),
+        header(media),
+        el("div", { class: "card" }, el("h3", {}, "Seasons"), el("div", { class: "season-grid" }, body))
+      );
+    } catch (e) {
+      $app.replaceChildren(
+        el("a", { href: "#/" }, "\u2190 Back to search"),
+        header(media),
+        el("div", { class: "card warn" }, `Could not load seasons: ${e.message}`)
+      );
+    }
+  }
   function route() {
+    const select = location.hash.match(/^#\/select\/(.+)$/);
     const m = location.hash.match(/^#\/media\/(.+)$/);
-    if (m) mediaPage(decodeURIComponent(m[1]));
+    if (select) selectPage(decodeURIComponent(select[1]));
+    else if (m) mediaPage(decodeURIComponent(m[1]));
     else landing();
   }
   function mountUI(root, apiImpl) {
@@ -1085,10 +1215,11 @@ ${text}`;
   async function start() {
     const root = document.getElementById("app");
     let api2 = createBrowserApi({ seeds: [slime_sample_default] });
+    const base = String(globalThis.MMDE_CONFIG?.apiBaseUrl ?? "").trim().replace(/\/+$/, "");
     if (location.protocol.startsWith("http")) {
       try {
-        const r = await fetch("/api/health");
-        if (r.ok && (await r.json()).ok) api2 = createServerApi();
+        const r = await fetch(base + "/api/health");
+        if (r.ok && (await r.json()).ok) api2 = createServerApi(base);
       } catch {
       }
     }

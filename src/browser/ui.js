@@ -192,20 +192,16 @@ function settingsPanel() {
   const cur = st.get();
   const live = el('input', { type: 'checkbox', id: 'live' });
   live.checked = !!cur.live;
-  const tmdb = el('input', { type: 'password', id: 'tmdb', placeholder: 'TMDB API Read Access Token', autocomplete: 'off', style: 'width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)' });
-  tmdb.value = cur.tmdbToken || '';
   const key = el('input', { type: 'password', id: 'akey', placeholder: 'optional: Anthropic API key', autocomplete: 'off', style: 'width:100%;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--text)' });
   key.value = cur.anthropicKey || '';
   const msg = el('span', { class: 'note' });
   const save = el('button', { class: 'btn', type: 'button', onclick: () => {
-    st.set({ live: live.checked, tmdbToken: tmdb.value.trim(), anthropicKey: key.value.trim() });
+    st.set({ live: live.checked, anthropicKey: key.value.trim() });
     msg.textContent = 'Saved.';
   } }, 'Save');
   return el('details', { class: 'card' }, el('summary', {}, 'Settings'),
     el('label', {}, live, ' Use live music discovery providers'),
-    el('div', { class: 'note' }, 'TMDB powers the fast title search and season list. Add your TMDB API Read Access Token here. It stays in this browser.'),
-    tmdb,
-    el('div', { class: 'note' }, 'TMDB search and season data require your TMDB application credentials.'),
+    el('div', { class: 'note' }, 'TMDB title search and seasons run on the MMDE server. TMDB credentials are never entered in, or stored by, the browser.'),
     key, el('div', {}, save, ' ', msg));
 }
 
@@ -239,7 +235,7 @@ async function selectPage(id) {
         el('strong', {}, s.name || `Season ${s.seasonNumber}`),
         el('span', {}, `${s.episodeCount} episodes${s.airDate ? ' · ' + s.airDate.slice(0, 4) : ''}`)
       ))
-      : [el('div', { class: 'card warn' }, 'No seasons were returned. Add a TMDB API Read Access Token in Settings if you have not already.')];
+      : [el('div', { class: 'card warn' }, 'No seasons were returned. Season lookup runs on the MMDE server (it needs TMDB configured there).')];
     $app.replaceChildren(
       el('a', { href: '#/' }, '← Back to search'),
       header(media),

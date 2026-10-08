@@ -4,7 +4,6 @@ import { mergeMediaResults } from '../app/media.ts';
 import { aniListResolver } from '../providers/anilist.ts';
 import { jikanResolver } from '../providers/jikan.ts';
 import { wikipediaResolver } from '../providers/wikipedia.ts';
-import { tmdbResolver, tmdbSeasons } from '../providers/tmdb.ts';
 import { animeThemesProvider } from '../providers/animethemes.ts';
 import { curatedProvider, type SeedFile } from '../providers/curated.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
@@ -27,8 +26,8 @@ export function createBrowserApi(opts: { seeds: SeedFile[]; fetchImpl?: typeof f
   const memory = new Map<string, DiscoveryResult>();
   const f: typeof fetch = opts.fetchImpl ?? ((...a) => fetch(...a));
   const readSettings = (): Settings => {
-    try { return { live: true, anthropicKey: '', tmdbToken: '', ...JSON.parse(store?.getItem(SETTINGS_KEY) ?? '{}') }; }
-    catch { return { live: true, anthropicKey: '', tmdbToken: '' }; }
+    try { return { live: true, anthropicKey: '', ...JSON.parse(store?.getItem(SETTINGS_KEY) ?? '{}') }; }
+    catch { return { live: true, anthropicKey: '' }; }
   };
   const readResults = (): Record<string, DiscoveryResult> => {
     try { return JSON.parse(store?.getItem(RESULTS_KEY) ?? '{}'); } catch { return {}; }
@@ -38,28 +37,17 @@ export function createBrowserApi(opts: { seeds: SeedFile[]; fetchImpl?: typeof f
   return {
     modeLabel: 'direct in browser (no server)',
     settings: { get: readSettings, set: (s) => { try { store?.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {} } },
+    // Browser-only mode never talks to TMDB: that needs a credential, and credentials live only on the MMDE server.
     async search(q) {
-      const st = readSettings();
-      const errors: string[] = [];
-      if (st.tmdbToken) {
-        try {
-          const results = await tmdbResolver(st.tmdbToken, f).search(q);
-          return { results, errors, sources: ['tmdb'] };
-        } catch (e) {
-          errors.push(`tmdb: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
       const results = await seedMediaResolver(opts.seeds).search(q);
-      return { results, errors, sources: ['local'] };
+      return { results, errors: [] as string[], sources: ['local'] };
     },
     async getResult(id) {
       const r = memory.get(id) ?? readResults()[id];
       return r ? view(r) : null;
     },
-    async getSeasons(media) {
-      const st = readSettings();
-      if (!st.tmdbToken) return [];
-      return tmdbSeasons(media, st.tmdbToken, f);
+    async getSeasons() {
+      return []; // season lookup is a server feature (/api/seasons)
     },
     async discover(media, onJob) {
       const st = readSettings();

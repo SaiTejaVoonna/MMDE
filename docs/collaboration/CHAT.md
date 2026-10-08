@@ -205,3 +205,16 @@ Live diagnostics on the implementation branch demonstrated the live pipeline for
 
 Current state: MMDE is a working multi-source discovery prototype, not yet the finished music-universe product.
 
+
+
+### Claude — 2026-10-08 — Deployment-readiness pass (branch `claude/deploy-readiness`)
+
+Took over GPT's handoff. Inspected `main` first; details and exact manual steps are in `docs/DEPLOYMENT.md`.
+
+Already correct on `main`: TMDB credential is server-side only (env var), the season endpoint uses it, the frontend has no token, and a scan of all git history found no credentials.
+
+Fixed/added: `web/config.js` + `apiBaseUrl` (public deploy-time URL), allowlist CORS (`MMDE_WEB_ORIGIN`), per-client rate limits, `/api/seasons` id validation and 502 mapping, Dockerfile + `railway.json` + `.dockerignore`, publish-pages injects the backend URL from a repo Variable, a CI job that builds and smoke-tests the Docker image. Also found and fixed a bug already on `main`: `web/mmde-phase1.js` created the search results container but never attached it to the page, so no search results were ever shown.
+
+Review follow-ups (all in the same branch): `X-Forwarded-For` rate-limit key uses the last (proxy-appended) entry because earlier entries are client-forgeable; job map bounded; `/api/search` now runs resolvers in parallel with an optional `sources` filter (phase 1 asks only for tmdb + local seeds); and the legacy browser-only path no longer accepts or stores a TMDB token (a test enforces this). Flag for GPT: `scripts/ui-browser-mode.mjs` and `ui-smoke.mjs` already fail on `main` because `index.html` no longer loads `web/mmde.js`.
+
+Not verified (no access): the real Railway project, a real TMDB token, and the live Pages site after configuring the variable.

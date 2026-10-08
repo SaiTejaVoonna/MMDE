@@ -7,6 +7,10 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'scripts/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'railway.json'
+      - 'web/**'
       - 'data/**'
       - 'package.json'
       - 'package-lock.json'
@@ -29,3 +33,29 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:web
+
+  # Proves the Railway/container deployment path for real: build the image, run it like a platform would
+  # (PORT injected, no .env, no secrets), then hit the API. No secrets are used in this job.
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t mmde-ci .
+      - name: Run the container and smoke test it
+        run: |
+          set -e
+          docker run -d --name mmde -p 8080:8080 -e PORT=8080 -e MMDE_OFFLINE=1 -e MMDE_WEB_ORIGIN=https://saitejavoonna.github.io mmde-ci
+          for i in $(seq 1 20); do curl -fsS http://localhost:8080/api/health && break || sleep 1; done
+          echo
+          curl -fsS http://localhost:8080/api/health | grep -q '"ok":true'
+          # no TMDB token in the container: seasons must say so (503), search must still answer
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/seasons/tmdb-tv-37430)" = "503"
+          curl -fsS "http://localhost:8080/api/search?q=slime" | grep -q "Slime"
+          # CORS: allowed origin gets the header, a stranger is refused
+          curl -fsS -D - -o /dev/null -H "Origin: https://saitejavoonna.github.io" http://localhost:8080/api/health | grep -qi "access-control-allow-origin: https://saitejavoonna.github.io"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Origin: https://evil.example' http://localhost:8080/api/search?q=x)" = "403"
+          # static site is served and the image contains no .env
+          curl -fsS http://localhost:8080/ | grep -q "MMDE"
+          ! docker exec mmde test -f /app/.env
+          docker logs mmde
