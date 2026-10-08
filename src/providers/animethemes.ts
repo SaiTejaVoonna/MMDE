@@ -1,31 +1,11 @@
 import type { Media, PartRef, TrackClaim, TrackRole } from '../domain/types.ts';
 import { createRateLimiter, type DiscoveryProvider } from './types.ts';
 
-interface AnimeThemesSong { id?: number; title?: string; artists?: Array<{ id?: number; name?: string }> }
-interface AnimeThemesEntry { id?: number; version?: number; episodes?: string | null; notes?: string | null }
-interface AnimeThemesTheme {
-  id?: number;
-  type?: string | null;
-  sequence?: number | null;
-  slug?: string;
-  song?: AnimeThemesSong | null;
-  animethemeentries?: AnimeThemesEntry[];
-}
-interface AnimeThemesAnime {
-  id?: number;
-  name?: string;
-  slug?: string;
-  year?: number | null;
-  media_format?: string;
-  animesynonyms?: Array<{ text?: string; synonym?: string; name?: string }>;
-  animethemes?: AnimeThemesTheme[];
-}
-interface AnimeThemesResponse { anime?: AnimeThemesAnime | AnimeThemesAnime[] }
-
-function unwrapAnime(body: AnimeThemesResponse): AnimeThemesAnime[] {
-  if (!body.anime) return [];
-  return Array.isArray(body.anime) ? body.anime : [body.anime];
-}
+interface Song { id?: number; title?: { romaji?: string; native?: string }; artists?: Array<{ id?: number; name?: string }> }
+interface Entry { id?: number; version?: number; episodes?: string | null; notes?: string | null }
+interface Theme { id?: number; type?: string | null; sequence?: number | null; slug?: string; song?: Song | null; animethemeentries?: Entry[] }
+interface Anime { id?: number; name?: string; slug?: string; title?: { romaji?: string; english?: string; native?: string }; animethemes?: Theme[] }
+interface GraphQLResponse { data?: { findAnimeByExternalSite?: Anime[] }; errors?: Array<{ message?: string }> }
 
 function role(type?: string | null): TrackRole | null {
   if (type === 'OP') return 'opening';
@@ -33,51 +13,60 @@ function role(type?: string | null): TrackRole | null {
   return null;
 }
 
-function partFor(media: Media): PartRef {
-  return media.partRef ?? { kind: 'whole' };
-}
+function partFor(media: Media): PartRef { return media.partRef ?? { kind: 'whole' }; }
 
-function bestAnime(items: AnimeThemesAnime[], media: Media): AnimeThemesAnime | undefined {
-  const wanted = new Set([media.title, ...media.altTitles].map((x) => x.trim().toLowerCase()).filter(Boolean));
-  return [...items].sort((a, b) => {
-    const as = wanted.has((a.name ?? '').toLowerCase()) ? 1 : 0;
-    const bs = wanted.has((b.name ?? '').toLowerCase()) ? 1 : 0;
-    return bs - as;
-  })[0];
-}
-
-/** Structured anime OP/ED discovery; identity confirmation remains MMDE's job. */
+/**
+ * AnimeThemes' current GraphQL API is used instead of the JSON API because the
+ * GraphQL endpoint is the upstream surface used by their own scheduled tooling.
+ * We resolve by MAL id when possible, avoiding fuzzy title selection.
+ */
 export function animeThemesProvider(fetchImpl: typeof fetch = fetch): DiscoveryProvider {
   const wait = createRateLimiter(700);
   return {
     name: 'animethemes',
     async discover(media: Media): Promise<TrackClaim[]> {
       if (media.type !== 'anime') return [];
-      const params = new URLSearchParams({
-        'page[size]': '5',
-        include: 'animesynonyms,animethemes.song.artists,animethemes.animethemeentries',
-      });
-      const malId = media.externalIds.mal;
-      if (malId) {
-        params.set('filter[has]', 'resources');
-        params.set('filter[site]', 'MyAnimeList');
-        params.set('filter[external_id]', malId);
-      } else {
-        params.set('q', media.title);
-      }
+      const mal = media.externalIds.mal;
+      if (!mal) return [];
+
+      const query = `query FindAnime($ids: [Int!]) {
+        findAnimeByExternalSite(site: MAL, id: $ids) {
+          id slug
+          title { romaji english native }
+          animethemes {
+            id slug type sequence
+            song { id title { romaji native } artists { id name } }
+            animethemeentries { id version episodes notes }
+          }
+        }
+      }`;
       await wait();
-      const res = await fetchImpl(`https://api.animethemes.moe/anime?${params}`, { headers: { Accept: 'application/json' } });
-      if (!res.ok) throw new Error(`HTTP ${res.status} from AnimeThemes`);
-      const body = (await res.json()) as AnimeThemesResponse;
-      const anime = bestAnime(unwrapAnime(body), media);
+      const res = await fetchImpl('https://graphql.animethemes.moe/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Origin: 'https://graphql.animethemes.moe',
+          Referer: 'https://graphql.animethemes.moe/',
+          'User-Agent': 'MMDE-prototype/0.2',
+        },
+        body: JSON.stringify({ query, variables: { ids: [Number(mal)] }, operationName: 'FindAnime' }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} from AnimeThemes GraphQL`);
+      const body = (await res.json()) as GraphQLResponse;
+      if (body.errors?.length && !body.data?.findAnimeByExternalSite?.length) {
+        throw new Error(`GraphQL: ${body.errors.map((e) => e.message ?? 'unknown error').join('; ')}`);
+      }
+      const anime = body.data?.findAnimeByExternalSite?.[0];
       if (!anime) return [];
+
       const out: TrackClaim[] = [];
       const seen = new Set<number>();
       for (const theme of anime.animethemes ?? []) {
         if (!theme.id || seen.has(theme.id)) continue;
         seen.add(theme.id);
         const r = role(theme.type);
-        const title = theme.song?.title?.trim();
+        const title = theme.song?.title?.romaji?.trim() || theme.song?.title?.native?.trim();
         if (!r || !title) continue;
         const artists = (theme.song?.artists ?? []).map((a) => a.name?.trim()).filter((x): x is string => !!x);
         const position = theme.sequence ? `${theme.type}${theme.sequence}` : theme.type ?? undefined;
