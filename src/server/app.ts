@@ -4,6 +4,7 @@ import { extname, join, normalize, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Media } from '../domain/types.ts';
 import { normalizeTitle } from '../matching/normalize.ts';
+import { mergeMediaResults } from '../app/media.ts';
 import type { MediaResolver } from '../providers/types.ts';
 import { newSteps, runDiscovery, type Deps, type Step } from './runner.ts';
 import type { Store } from './store.ts';
@@ -50,16 +51,11 @@ export function createApp(deps: AppDeps): Server {
   async function search(q: string) {
     const results: Media[] = [];
     const errors: string[] = [];
-    const seen = new Set<string>();
     for (const r of deps.mediaResolvers) {
-      try {
-        for (const m of await r.search(q)) {
-          const k = normalizeTitle(m.title);
-          if (!seen.has(k)) { seen.add(k); results.push(m); }
-        }
-      } catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
+      try { results.push(...await r.search(q)); }
+      catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
     }
-    return { results, errors, sources: deps.mediaResolvers.map((r) => r.name) };
+    return { results: mergeMediaResults(results), errors, sources: deps.mediaResolvers.map((r) => r.name) };
   }
 
   async function serveStatic(pathname: string, res: ServerResponse) {
