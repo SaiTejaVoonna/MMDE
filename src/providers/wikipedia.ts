@@ -5,9 +5,9 @@ interface SearchRow { title: string; snippet: string; pageid: number; }
 
 function mediaType(title: string, snippet: string): Media['type'] {
   const text = `${title} ${snippet}`.toLowerCase();
-  if (/(anime|manga)/.test(text)) return 'anime';
-  if (/(tv series|television series|television show|tv show|series)/.test(text)) return 'tv';
-  if (/(film|movie)/.test(text)) return 'movie';
+  if (/\\b(anime|manga)\\b/.test(text)) return 'anime';
+  if (/\\b(tv series|television series|television show|tv show|series)\\b/.test(text)) return 'tv';
+  if (/\\b(film|movie)\\b/.test(text)) return 'movie';
   return 'other';
 }
 
