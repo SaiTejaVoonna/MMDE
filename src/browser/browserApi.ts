@@ -2,6 +2,8 @@ import type { DiscoveryResult, Media } from '../domain/types.ts';
 import { organize } from '../app/organize.ts';
 import { mergeMediaResults } from '../app/media.ts';
 import { aniListResolver } from '../providers/anilist.ts';
+import { jikanResolver } from '../providers/jikan.ts';
+import { wikipediaResolver } from '../providers/wikipedia.ts';
 import { animeThemesProvider } from '../providers/animethemes.ts';
 import { curatedProvider, type SeedFile } from '../providers/curated.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
@@ -38,7 +40,7 @@ export function createBrowserApi(opts: { seeds: SeedFile[]; fetchImpl?: typeof f
     async search(q) {
       const st = readSettings();
       const resolvers: MediaResolver[] = [seedMediaResolver(opts.seeds)];
-      if (st.live) resolvers.push(aniListResolver(f));
+      if (st.live) resolvers.push(aniListResolver(f), jikanResolver(f), wikipediaResolver(f));
       const results: Media[] = [];
       const errors: string[] = [];
       for (const r of resolvers) {
