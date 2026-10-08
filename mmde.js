@@ -1127,9 +1127,15 @@ ${text}`;
   var PLATFORM_LABEL = { spotify: "Spotify", apple: "Apple Music", youtube: "YouTube", youtubeMusic: "YouTube Music", deezer: "Deezer" };
   var ROLE_FILTERS = ["All", "Openings", "Endings", "Insert Songs", "Character Songs", "OST", "Original Score"];
   function landing() {
-    const input = el("input", { class: "search", type: "search", placeholder: "Search an anime, movie, game or show...", autocomplete: "off", "aria-label": "Search media" });
+    const input = el("input", { class: "search", type: "search", placeholder: "Search a movie, anime, TV show or game...", autocomplete: "off", "aria-label": "Search media" });
     const suggest = el("div", { class: "suggest", hidden: true });
-    const status = el("div", { class: "note" });
+    const status = el("div", { class: "note search-status" });
+    const loading = el(
+      "div",
+      { class: "search-loading", hidden: true, "aria-live": "polite" },
+      el("div", { class: "loading-line" }, el("span", { class: "loading-fill" })),
+      el("span", { class: "loading-label" }, "Searching...")
+    );
     let timer = 0, seq = 0;
     const run = async () => {
       const q = input.value.trim();
@@ -1139,9 +1145,13 @@ ${text}`;
         status.textContent = "";
         return;
       }
+      suggest.hidden = true;
+      loading.hidden = false;
+      status.textContent = "";
       try {
         const r = await api.search(q);
         if (mine !== seq) return;
+        loading.hidden = true;
         lastSearch = { query: q, sources: r.sources, errors: r.errors, count: r.results.length };
         suggest.replaceChildren(...r.results.map((m) => {
           mediaCache.set(m.id, m);
@@ -1157,10 +1167,14 @@ ${text}`;
         suggest.hidden = r.results.length === 0;
         status.textContent = r.results.length ? `Found ${r.results.length} matches \xB7 ${r.sources.join(" \xB7 ")}` : "No matching media found.";
       } catch (e) {
+        if (mine !== seq) return;
+        loading.hidden = true;
         status.textContent = `Search failed: ${e.message}`;
       }
     };
     input.addEventListener("input", () => {
+      const hasValue = input.value.trim().length > 0;
+      input.parentElement.querySelector(".search-clear").hidden = !hasValue;
       clearTimeout(timer);
       timer = setTimeout(run, 250);
     });
@@ -1171,15 +1185,29 @@ ${text}`;
         { class: "hero" },
         el("h1", {}, "Know the Title.", el("br"), el("em", {}, "Discover the Music.")),
         el("p", {}, "Search any media title. MMDE first resolves what you mean \u2014 anime, movie, TV show, game or other media. Music comes in Phase 2."),
-        el("div", { class: "searchwrap" }, input, suggest),
+        el(
+          "div",
+          { class: "searchwrap" },
+          el("span", { class: "search-icon", "aria-hidden": "true" }),
+          input,
+          el("button", { class: "search-clear", type: "button", hidden: true, "aria-label": "Clear search", onclick: () => {
+            input.value = "";
+            input.focus();
+            suggest.hidden = true;
+            loading.hidden = true;
+            status.textContent = "";
+          } }, "\xD7"),
+          suggest
+        ),
+        loading,
         status,
-        el("div", { class: "note" }, "Try:"),
+        el("div", { class: "note try-label" }, "Try searching"),
         el("div", { class: "chips" }, examples.map((t) => el("button", { class: "chip", type: "button", onclick: () => {
           input.value = t;
           input.focus();
           run();
         } }, t))),
-        el("div", { class: "note" }, `Phase 1 \xB7 Media search \xB7 ${api.modeLabel}`),
+        el("div", { class: "note mode-note" }, `Media search \xB7 ${api.modeLabel}`),
         settingsPanel()
       )
     );
@@ -1203,7 +1231,7 @@ ${text}`;
     return el(
       "div",
       { class: "card" },
-      el("strong", {}, "Adding to discovery"),
+      el("strong", {}, "Finding the music"),
       el("ul", { class: "progress" }, job.steps.map((s) => el(
         "li",
         {},
@@ -1331,7 +1359,7 @@ ${text}`;
       draw();
     };
     const discover = async (media2) => {
-      $app.replaceChildren(el("a", { href: "#/" }, "\u2190 Back to search"), header(media2), el("div", { class: "note" }, "Starting discovery..."));
+      $app.replaceChildren(el("a", { href: "#/" }, "\u2190 Back to search"), header(media2), el("div", { class: "note" }, "Finding music connected to this title..."));
       try {
         const result = await api.discover(media2, (job) => {
           $app.replaceChildren(el("a", { href: "#/" }, "\u2190 Back to search"), header(media2), progressView(job));
@@ -1392,11 +1420,11 @@ ${text}`;
         "div",
         { class: "card" },
         el("h3", {}, "Phase 1 \xB7 Media found"),
-        el("p", { class: "note" }, "This is only the media-resolution phase. MMDE has identified the title; music discovery has not started yet."),
+        el("p", { class: "note" }, "MMDE found the title. Start the next step to discover the music connected to it."),
         el("div", { class: "meta" }, `Source IDs: ${Object.entries(media.externalIds || {}).map(([k, v]) => `${k}:${v}`).join(" \xB7 ") || "none"}`),
         el("button", { class: "btn", type: "button", onclick: () => {
           location.hash = `#/media/${encodeURIComponent(media.id)}`;
-        } }, "Phase 2 \xB7 Discover music")
+        } }, "Discover the music")
       )
     );
   }
