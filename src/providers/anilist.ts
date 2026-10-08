@@ -134,6 +134,26 @@ export function aniListResolver(fetchImpl: typeof fetch = fetch): MediaResolver 
         seen.add(candidate.id);
         related.push(candidate);
       }
+      // Search predictable sequel/movie title variants as a fallback. This is intentionally
+      // generic (not Slime-specific) and only admits candidates that share the root franchise title.
+      if (initial[0]!.title.romaji && inferPart(initial[0]!.title) .kind === 'whole') {
+        const base = initial[0]!.title.romaji;
+        const variantQueries = [
+          ...Array.from({ length: 7 }, (_, i) => `${base} ${i + 2}nd Season`),
+          `${base} Movie`,
+        ];
+        for (const q of variantQueries) {
+          const variants = await request(q);
+          for (const node of variants) {
+            const candidate = toMedia(node, 'TITLE_VARIANT');
+            if (candidate.id !== root.id && !seen.has(candidate.id) && likelySameFranchise(root, candidate)) {
+              seen.add(candidate.id);
+              related.push(candidate);
+            }
+          }
+        }
+      }
+
       // Some AniList anime entries do not expose the main sequel chain as direct
       // relations. The source light novel/manga often contains the complete adaptation
       // family, so use it as a relationship bridge without making it a user-facing result.
