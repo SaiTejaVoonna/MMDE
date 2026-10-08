@@ -11,6 +11,7 @@ export function createServerApi(): Api {
   return {
     modeLabel: 'server (http://localhost)',
     async search(q) { return call(`/api/search?q=${encodeURIComponent(q)}`) as never; },
+    async getSeasons(media) { return []; },
     async getResult(id) {
       try { return (await call(`/api/media/${encodeURIComponent(id)}`)) as ResultView; }
       catch (e) { if ((e as { status?: number }).status === 404) return null; throw e; }
