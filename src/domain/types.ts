@@ -1,4 +1,4 @@
-// MMDE domain model (prototype). Proposal only: see docs/DATA_MODEL.md.
+// MMDE domain model. Proposal only: see docs/DATA_MODEL.md.
 // Media -> MediaPart -> MediaTrack -> Recording. A MediaTrack is a *claim* that a
 // recording plays in a part of a media, with evidence and a confidence status.
 
@@ -25,6 +25,11 @@ export type VersionKind =
   | 'unknown';
 export type MatchStatus = 'confirmed' | 'suggested' | 'unverified';
 
+export interface PartRef {
+  kind: PartKind;
+  number?: number;
+}
+
 export interface Media {
   id: string;
   type: MediaType;
@@ -32,11 +37,12 @@ export interface Media {
   altTitles: string[];
   year?: number;
   externalIds: Record<string, string>;
-}
-
-export interface PartRef {
-  kind: PartKind;
-  number?: number;
+  /** The context this media entry represents inside a tracked media universe. */
+  partRef?: PartRef;
+  /** Related productions discovered by the media resolver (e.g. seasons, movies, OVAs). */
+  relatedMedia?: Media[];
+  /** Provider relation used to explain why a related media entry was included. */
+  relationType?: string;
 }
 
 export interface MediaPart extends PartRef {
@@ -56,14 +62,13 @@ export interface Evidence {
 export interface TrackClaim {
   part: PartRef;
   role: TrackRole;
-  position?: string; // e.g. "OP1", "ED2"
+  position?: string;
   title: string;
   artists: string[];
   durationSec?: number;
   evidence: Evidence;
 }
 
-/** A concrete recording found by an identity resolver (e.g. MusicBrainz). */
 export interface RecordingCandidate {
   title: string;
   artists: string[];
@@ -84,7 +89,6 @@ export interface MediaTrack {
   version: VersionKind;
   recording?: RecordingCandidate;
   matchScore?: number;
-  /** Display-only: why a recording was / was not matched (top candidate and score). */
   matchNote?: string;
   confidence: number;
   status: MatchStatus;
@@ -104,7 +108,6 @@ export interface Release {
 
 export type Platform = 'spotify' | 'apple' | 'youtube' | 'youtubeMusic' | 'deezer';
 
-/** "resolved" = we found the actual item; "search" = a search URL, NOT a verified match. */
 export interface PlatformLink {
   platform: Platform;
   url: string;
