@@ -11,12 +11,16 @@ import { jsonStore } from './store.ts';
 
 // Run:  node src/server/main.ts      (PORT=8787 by default)
 // Env:  MMDE_OFFLINE=1      -> local seeds only, no network providers
+//       (flags work on Windows too: --offline, --contact=you@example.com, --port=8787)
 //       MMDE_CONTACT=...    -> contact string put in the User-Agent (MusicBrainz requires a real one)
 //       ANTHROPIC_API_KEY   -> enables the Wikipedia+LLM extractor (optional)
 //       MMDE_MODEL          -> model for the extractor
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const offline = process.env.MMDE_OFFLINE === '1';
-const userAgent = `MMDE-prototype/0.1 (personal, non-commercial; ${process.env.MMDE_CONTACT ?? 'set MMDE_CONTACT'})`;
+const args = process.argv.slice(2);
+const flag = (name: string) => args.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=');
+const offline = process.env.MMDE_OFFLINE === '1' || args.includes('--offline');
+const contact = flag('contact') ?? process.env.MMDE_CONTACT ?? 'set MMDE_CONTACT';
+const userAgent = `MMDE-prototype/0.1 (personal, non-commercial; ${contact})`;
 
 const seeds = await loadSeeds(join(root, 'data', 'seeds'));
 const providers = seeds.map((s) => curatedProvider(s));
@@ -33,7 +37,7 @@ if (!offline) {
   }
 }
 
-const port = Number(process.env.PORT ?? 8787);
+const port = Number(flag('port') ?? process.env.PORT ?? 8787);
 createApp({ providers, mediaResolvers, recordingResolver, linkResolvers, store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web') })
   .listen(port, () => {
     console.log(`MMDE prototype on http://localhost:${port}  (${offline ? 'OFFLINE: local seeds only' : 'live providers enabled'})`);

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { createApp } from '../src/server/app.ts';
@@ -8,7 +9,7 @@ import { seedMediaResolver } from '../src/providers/seeds.ts';
 import { buildLinks } from '../src/links/platforms.ts';
 import type { LinkResolver, RecordingResolver } from '../src/providers/types.ts';
 
-const here = (p: string) => new URL(p, import.meta.url).pathname;
+const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 async function boot(extra: Partial<Parameters<typeof createApp>[0]> = {}) {
   const seed = await loadSeed(here('../data/seeds/slime.sample.json'));

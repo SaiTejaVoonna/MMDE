@@ -11,6 +11,6 @@
     "test": "node --test \"tests/*.test.ts\"",
     "slime": "node src/app/cli.ts data/seeds/slime.sample.json",
     "start": "node src/server/main.ts",
-    "start:offline": "MMDE_OFFLINE=1 node src/server/main.ts"
+    "start:offline": "node src/server/main.ts --offline"
   }
 }

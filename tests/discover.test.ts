@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { discover } from '../src/app/discover.ts';
 import { organize, render } from '../src/app/organize.ts';
@@ -67,7 +68,7 @@ test('organize groups by part then role in a stable order', async () => {
 });
 
 test('slime sample seed loads, renders, and is only ever "unverified" offline', async () => {
-  const seed = await loadSeed(new URL('../data/seeds/slime.sample.json', import.meta.url).pathname);
+  const seed = await loadSeed(fileURLToPath(new URL('../data/seeds/slime.sample.json', import.meta.url)));
   const { tracks } = await discover(seed.media, [curatedProvider(seed)]);
   assert.equal(tracks.length, 5);
   assert.ok(tracks.every((t) => t.status === 'unverified'));

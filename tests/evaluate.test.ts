@@ -1,11 +1,12 @@
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { discover } from '../src/app/discover.ts';
 import { evaluate, type GroundTruthTrack } from '../src/app/evaluate.ts';
 import { curatedProvider, loadSeed } from '../src/providers/curated.ts';
 
-const here = (p: string) => new URL(p, import.meta.url).pathname;
+const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 test('seed and ground truth agree (no false positives, nothing missed)', async () => {
   const seed = await loadSeed(here('../data/seeds/slime.sample.json'));
