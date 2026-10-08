@@ -99,3 +99,24 @@ test('mbReleaseSource: a subtitle in the TMDB title does not hide releases named
   const out = await mbReleaseSource('MMDE-test (x)', fake, { intervalMs: 1 }).find('Bāhubali 2: The Conclusion', [], ['M. M. Keeravani']);
   assert.deepEqual(out.map((r) => r.id), ['te1']);
 });
+
+test('mergeSoundtrack: same release date + track number + length (±2 s) joins a MusicBrainz song to a catalog song despite a different script', () => {
+  const apple = { platform: 'apple' as const, id: '1', name: 'Fire Force OST', artist: 'Kenichiro Suehiro', url: 'https://music.apple.com/a/1', kind: 'album' as const, releaseDate: '2019-12-11T08:00:00Z' };
+  const at = (no: number, title: string, len: number) => ({ no, title, artists: ['Kenichiro Suehiro'], lengthSec: len, url: 'https://music.apple.com/t/' + no, id: String(no) });
+  const mb = [{ ...parseRelease(rel('jp1', '炎炎ノ音楽隊', 'jpn', [['炎炎ノ消防隊 -MainTheme-', 142, 'JPW1'], ['Other Song', 180, 'JPW2'], ['Far Off', 200, 'JPW3']], 'Kenichiro Suehiro')), date: '2019-12-11' }];
+  const m = mergeSoundtrack(null, [{ album: apple, tracks: [at(1, 'Fire Force - Main Theme', 143), at(2, 'Other Song', 181), at(3, 'Different Length', 260)] }], { mbReleases: mb, composers: ['Kenichiro Suehiro'] });
+  const all = m.sections.flatMap((s) => s.tracks);
+  const main = all.find((t) => t.title === 'Fire Force - Main Theme')!;
+  assert.equal(main.proof?.isrc, 'JPW1'); assert.equal(main.confidence, 'green');
+  assert.equal(all.filter((t) => /MainTheme/.test(t.title)).length, 0, 'no duplicate row in the other script');
+  assert.equal(all.length, 4, '3 Apple songs + the one MusicBrainz song whose length (200 vs 260) does not match');
+});
+
+test('mergeSoundtrack: Wikipedia sections named after a language carry that language, so versions can be linked', () => {
+  const wiki = { page: { title: 'B2', url: 'u' }, pageKind: 'soundtrack' as const, license: 'CC BY-SA 4.0' as const, sections: [
+    { name: 'Telugu', tracks: [{ no: 1, title: 'Saahore Baahubali', artists: [], lyricists: [], lengthSec: 300 }] },
+    { name: 'Hindi', tracks: [{ no: 1, title: 'Jai Jaikara', artists: [], lyricists: [], lengthSec: 301 }] }] };
+  const m = mergeSoundtrack(wiki, []);
+  assert.deepEqual(m.languages.map((l) => l.language).sort(), ['Hindi', 'Telugu']);
+  assert.equal(m.sections[0]!.tracks[0]!.versions?.[0]?.language, 'Hindi');
+});

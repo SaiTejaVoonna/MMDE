@@ -108,7 +108,7 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
         const m: MergedTrack = { key, no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec, confidence: 'amber', evidence: [wikiEvidence], links: {} };
         byKey.set(key, m); tracks.push(m);
       }
-      if (tracks.length) sections.push({ name: sec.name, origin: 'wikipedia', tracks });
+      if (tracks.length) sections.push({ name: sec.name, origin: 'wikipedia', tracks, language: languageFromName(sec.name) });
     }
   }
 
@@ -129,6 +129,8 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
   }
 
   // 2. Catalog albums: add evidence and direct links to known songs; unknown songs go in their own album section.
+  // Songs of catalog albums by release date: lets a MusicBrainz release of the SAME date match them by position + length when titles differ in script.
+  const byDate = new Map<string, Array<{ t: MergedTrack; no: number; len?: number }>>();
   const albums = fetched.filter((f) => f.album.kind === 'album');
   const playlists = fetched.filter((f) => f.album.kind === 'playlist');
   for (const { album, tracks } of albums) {
@@ -138,16 +140,20 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
     for (const t of tracks) {
       const key = trackKey(t.title);
       const known = byKey.get(key);
+      let merged: MergedTrack;
       if (known) {
         addEvidence(known, ev);
         known.links[src] ??= t.url;
         known.art ??= t.art ?? album.art;
         known.artists = unionArtists(known.artists, t.artists);
         known.lengthSec ??= t.lengthSec;
+        merged = known;
       } else {
         const m: MergedTrack = { key, no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec, confidence: 'amber', evidence: [ev], links: { [src]: t.url }, art: t.art ?? album.art };
-        byKey.set(key, m); fresh.push(m);
+        byKey.set(key, m); fresh.push(m); merged = m;
       }
+      const day = album.releaseDate?.slice(0, 10);
+      if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) { const list = byDate.get(day) ?? []; list.push({ t: merged, no: t.no, len: t.lengthSec }); byDate.set(day, list); }
     }
     if (fresh.length) sections.push({ name: `${PLATFORM_LABEL[album.platform]}: ${album.name}`, origin: 'catalog', tracks: fresh, releaseDate: album.releaseDate, language: languageFromName(album.name) });
   }
@@ -159,7 +165,9 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
     const fresh: MergedTrack[] = [];
     for (const t of rel.tracks) {
       const key = trackKey(t.title);
-      const known = byKey.get(key);
+      // Same release date + same track number + length within 2 s = the same recording even when the title is in another script.
+      const samePos = !byKey.has(key) && rel.date && t.lengthSec ? (byDate.get(rel.date.slice(0, 10)) ?? []).find((x) => x.no === t.no && x.len !== undefined && Math.abs(x.len - t.lengthSec!) <= 2)?.t : undefined;
+      const known = byKey.get(key) ?? samePos;
       if (known) {
         addEvidence(known, ev);
         known.proof ??= proofOf(t.isrcs[0]);
