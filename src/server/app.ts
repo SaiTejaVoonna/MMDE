@@ -13,6 +13,8 @@ import { tmdbSeasons, tmdbDetails, type TmdbSeason, type TmdbDetails } from '../
 import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { TrackLinksResult, TrackQuery } from '../providers/trackLinks.ts';
 import type { CatalogAlbum, CatalogPlatform, CatalogTrack } from '../providers/catalogAlbums.ts';
+import { buildMergedSoundtrack } from '../app/soundtrackService.ts';
+import type { MergedSoundtrack } from '../app/soundtrackMerge.ts';
 import { decideCors } from './cors.ts';
 import { clientKey, createRateLimiter, type Limit } from './rateLimit.ts';
 
@@ -81,6 +83,7 @@ export function createApp(deps: AppDeps): Server {
   const discoverLimiter = createRateLimiter(limits.discover);
   const getSeasons = deps.seasons ?? tmdbSeasons;
   const soundtrackCache = new Map<string, { at: number; value: Soundtrack | null }>();
+  const mergedCache = new Map<string, { at: number; value: MergedSoundtrack }>();
   const getDetails = deps.details ?? ((id: string, token: string) => tmdbDetails(id, token));
 
   /**
@@ -204,6 +207,21 @@ export function createApp(deps: AppDeps): Server {
         if (!['apple', 'deezer', 'deezer-playlist'].includes(platform) || !/^\d{1,15}$/.test(id)) return send(res, 400, { error: 'invalid platform or id' });
         try { return send(res, 200, { tracks: await deps.albumTracks(platform as CatalogPlatform, id) }); }
         catch (e) { return send(res, 502, { error: `track list failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
+      if (req.method === 'GET' && path === '/api/soundtrack-merged') {
+        if (!deps.soundtrack || !deps.albums || !deps.albumTracks) return send(res, 503, { error: 'soundtrack lookup is not available on this server' });
+        const title = (url.searchParams.get('title') ?? '').trim();
+        const yearRaw = url.searchParams.get('year');
+        const year = yearRaw && /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : undefined;
+        if (title.length < 2 || title.length > 120) return send(res, 400, { error: 'title must be 2-120 characters' });
+        const key = `${title.toLowerCase()}|${year ?? ''}`;
+        const hit = mergedCache.get(key);
+        if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value);
+        try {
+          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks }, title, year);
+          if (!value.partial) { mergedCache.set(key, { at: Date.now(), value }); if (mergedCache.size > 300) mergedCache.delete(mergedCache.keys().next().value as string); }
+          return send(res, 200, value);
+        } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/media') return send(res, 200, { items: await deps.store.list() });
       if (req.method === 'GET' && path.startsWith('/api/media/')) {

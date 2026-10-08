@@ -142,3 +142,9 @@ button.pcard:hover{border-color:#35425d;background:rgba(255,255,255,.03)}
 .pcardopen{background:none;border:0;color:var(--text);text-align:left;display:flex;flex-direction:column;gap:4px;cursor:pointer;padding:0}
 .unfollow{margin-top:4px;background:none;border:0;color:var(--mute);cursor:pointer;font-size:12px;text-align:left}
 @media(max-width:700px){.trow{grid-template-columns:24px 40px 1fr 28px}.tpills{grid-column:2 / 5;justify-content:flex-start}}
+
+/* confidence dots + filters */
+.cdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:1px;cursor:help}
+.cdot-green{background:#34d399}.cdot-amber{background:#fbbf24}.cdot-red{background:#ff6b6b}
+.tfilter-green .trow:not([data-conf=green]),.tfilter-amber .trow:not([data-conf=amber]),.tfilter-red .trow:not([data-conf=red]){display:none}
+.tcommunity summary{color:#ff9d9d}
