@@ -1,0 +1,70 @@
+MMDE DIAGNOSTICS
+generated: 2026-10-08T02:52:33.769Z
+result generatedAt: 2026-10-08T02:52:33.769Z
+mode: headless Node v22.23.3 on linux, live providers
+live providers: on; AI extractor key set: no
+
+MEDIA: JUJUTSU KAISEN (anime, 2020) id=anilist-113415 externalIds={"anilist":"113415","mal":"40748"}
+LAST SEARCH: "jujutsu kaisen" -> 8 results from [local-seeds, anilist]; no errors
+
+PROVIDERS (configured -> errors reported)
+- curated-seed: no error reported
+- animethemes: no error reported
+- musicbrainz: no error reported
+all errors (0): none
+
+TRACKS: 13 total; confirmed 0, suggested 4, unverified 9
+- [unverified] whole / opening OP1: "Kaikai Kitan" - Eve | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 21 candidates; top "Kaikai Kitan" - Ironmouse score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen "episodes 1-2"
+    links: all search links (none resolved)
+- [suggested] whole / opening OP2: "VIVID VICE" - Who-ya Extended | version=original confidence=0.59 matchScore=0.9500000000000001 | mbid=2976920c-177e-4072-91a8-b59cc30ce877 isrc=JPU902003456
+    match: 5 candidates; top "VIVID VICE" - Who‐ya Extended score 0.95 (title 1.00, artist 1.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen "episodes 14-24"
+    links: resolved=deezer
+- [unverified] whole / ending ED1: "LOST IN PARADISE feat. AKLO" - ALI | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 1 candidates; top "LOST IN PARADISE feat. AKLO" - Studio Megaane score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen "episodes 2-13"
+    links: all search links (none resolved)
+- [suggested] whole / ending ED2: "give it back" - Cö shu Nie | version=original confidence=0.59 matchScore=0.9500000000000001 | mbid=e3b76b71-a107-41d1-ba82-f5d78f180a47 isrc=JPU902003338
+    match: 6 candidates; top "give it back" - Cö shu Nie score 0.95 (title 1.00, artist 1.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen "episodes 14-24"
+    links: resolved=deezer
+- [suggested] movie / opening OP: "Greatest Strength" - Toft Willingham, Chez, Jessica Gelinas | version=original confidence=0.59 matchScore=0.9500000000000001 | mbid=c9b4dd0d-7dc2-4112-b2e7-495cb113910a isrc=JPV432100426
+    match: 1 candidates; top "Greatest Strength" - 堤博明, Hiroaki Tsutsumi, Toft Willingham, Chez, Jessica Gelinas score 0.95 (title 1.00, artist 1.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_0
+    links: resolved=deezer
+- [unverified] movie / ending ED1: "Sakayume" - King Gnu, Daiki Tsuneta | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 6 candidates; top "Sakayume" - Animenz, Animenzzz score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_0
+    links: all search links (none resolved)
+- [unverified] movie / ending ED2: "Ichizu" - King Gnu, Daiki Tsuneta | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 10 candidates; top "ICHIZU" - 136youngboss, 136, WNC score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_0
+    links: all search links (none resolved)
+- [unverified] season 2 / opening OP1: "Ao no Sumika" - Tatsuya Kitani | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 12 candidates; top "Ao No Sumika" - Vikas Kumar score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_2nd_season "episodes 1-5"
+    links: all search links (none resolved)
+- [unverified] season 2 / ending ED1: "Akari" - Soushi Sakiyama | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 25 candidates; top "Akari" - 渡辺剛, Takeshi Watanabe score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_2nd_season "episodes 1-5"
+    links: all search links (none resolved)
+- [unverified] season 2 / opening OP2: "SPECIALZ" - King Gnu, Daiki Tsuneta | version=original confidence=0.52 matchScore=0.75 | no recording match
+    match: 5 candidates; top "SPECIALZ" - King Gnu score 0.75 (title 1.00, artist 0.50)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_2nd_season "episodes 6-16, 18-19"
+    links: all search links (none resolved)
+- [unverified] season 2 / ending ED2: "more than words" - Hitsujibungaku | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 25 candidates; top "More Than Words" - Devotion score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_2nd_season "episodes 6-11"
+    links: all search links (none resolved)
+- [suggested] season 3 / opening OP: "AIZO" - King Gnu | version=original confidence=0.59 matchScore=0.9500000000000001 | mbid=4c819955-e6b3-491a-b951-f9a766db02ac isrc=JPU902504639
+    match: 1 candidates; top "AIZO" - King Gnu score 0.95 (title 1.00, artist 1.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_shimetsu_kaiyuu_zenpen "episodes 1-11"
+    links: resolved=deezer
+- [unverified] season 3 / ending ED: "Yoake no Uta" - jo0ji | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 5 candidates; top "Yoake no uta" - Okuda Ryouzou score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/jujutsu_kaisen_shimetsu_kaiyuu_zenpen "episodes 1-12"
+    links: all search links (none resolved)
+
+RELEASES: 0

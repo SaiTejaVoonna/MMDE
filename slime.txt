@@ -1,0 +1,55 @@
+MMDE DIAGNOSTICS
+generated: 2026-10-08T02:51:51.040Z
+result generatedAt: 2026-10-08T02:51:51.040Z
+mode: headless Node v22.23.3 on linux, live providers
+live providers: on; AI extractor key set: no
+
+MEDIA: That Time I Got Reincarnated as a Slime (anime, 2018) id=slime externalIds={"anilist":"101280","mal":"37430"}
+LAST SEARCH: "slime" -> 8 results from [local-seeds, anilist]; no errors
+
+PROVIDERS (configured -> errors reported)
+- curated-seed: no error reported
+- animethemes: no error reported
+- musicbrainz: no error reported
+all errors (0): none
+
+TRACKS: 9 total; confirmed 0, suggested 4, unverified 5
+- [suggested] season 1 / opening OP1: "Nameless Story" - Takuma Terashima | version=original confidence=0.59 matchScore=0.9500000000000001 | mbid=6006d61f-cba0-4141-95e6-17ea6bd15406 isrc=JPI101802406
+    match: 20 candidates; top "Nameless Story" - 寺島拓篤, Takuma Terashima score 0.95 (title 1.00, artist 1.00)
+    evidence: curated-seed https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)
+    links: resolved=deezer
+- [unverified] season 1 / opening OP2: "Meguru Mono" - Takuma Terashima | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 4 candidates; top "Meguru Mono" - Dima Lancaster score 0.50 (title 1.00, artist 0.00)
+    evidence: curated-seed https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)
+    links: all search links (none resolved)
+- [suggested] season 1 / ending ED1: "Another colony" - TRUE | version=original confidence=0.59 matchScore=0.9500000000000001 | mbid=37de4605-f46f-429e-b1e3-7ab12a440667 isrc=JPI101802437
+    match: 4 candidates; top "Another colony" - TRUE score 0.95 (title 1.00, artist 1.00)
+    evidence: curated-seed https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)
+    links: resolved=deezer
+- [unverified] season 1 / ending ED2: "Little Soldier" - Azusa Tadokoro | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 25 candidates; top "Little Soldier" - Cécile Corbel score 0.50 (title 1.00, artist 0.00)
+    evidence: curated-seed https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)
+    links: all search links (none resolved)
+- [unverified] season 1 / insert ep23: "Boku no Naka no Kimi e" - TRUE | version=original confidence=0.3 matchScore=none | no recording match
+    match: resolver returned 0 candidates
+    evidence: curated-seed https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)
+    links: all search links (none resolved)
+- [suggested] whole / opening OP1: "Nameless Story" - Takuma Terashima | version=original confidence=0.59 matchScore=0.9500000000000001 | mbid=6006d61f-cba0-4141-95e6-17ea6bd15406 isrc=JPI101802406
+    match: 20 candidates; top "Nameless Story" - 寺島拓篤, Takuma Terashima score 0.95 (title 1.00, artist 1.00)
+    evidence: animethemes https://animethemes.moe/anime/tensei_shitara_slime_datta_ken "episodes 1-14"
+    links: resolved=deezer
+- [unverified] whole / opening OP2: "Meguru Mono" - Takuma Terashima | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 4 candidates; top "Meguru Mono" - Dima Lancaster score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/tensei_shitara_slime_datta_ken "episodes 15-24"
+    links: all search links (none resolved)
+- [suggested] whole / ending ED1: "Another colony" - TRUE | version=original confidence=0.59 matchScore=0.9500000000000001 | mbid=37de4605-f46f-429e-b1e3-7ab12a440667 isrc=JPI101802437
+    match: 4 candidates; top "Another colony" - TRUE score 0.95 (title 1.00, artist 1.00)
+    evidence: animethemes https://animethemes.moe/anime/tensei_shitara_slime_datta_ken "episodes 2-13"
+    links: resolved=deezer
+- [unverified] whole / ending ED2: "Little Soldier" - Azusa Tadokoro, 田所あずさ | version=original confidence=0.45 matchScore=0.5 | no recording match
+    match: 25 candidates; top "Little Soldier" - The Rodeo score 0.50 (title 1.00, artist 0.00)
+    evidence: animethemes https://animethemes.moe/anime/tensei_shitara_slime_datta_ken "episodes 14-24"
+    links: all search links (none resolved)
+
+RELEASES: 1
+- ost "Eien no Kizuna: That Time I Got Reincarnated as a Slime the Movie Scarlet Bond Original Soundtrack" - Hitoshi Fujima (Elements Garden) | Lantis | 46 tracks | source https://otakumode.com/shop/632a6d81f1c8c1001f7073ce (via search summary; 2 discs, 46 BGM tracks; CD release date not confirmed)
