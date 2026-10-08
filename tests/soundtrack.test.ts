@@ -60,6 +60,16 @@ test('wikiSoundtrack.find: falls back to the film article, and returns null when
   assert.equal(await none.find('Plain', 2001), null);
 });
 
+test('acceptCandidate: same title + same singer on a DIFFERENT release is rejected when length or year disagree (Naatu Naatu vs an unrelated 2018 album)', () => {
+  const q = { title: 'Naatu Naatu', artists: ['Rahul Sipligunj', 'Kaala Bhairava'], film: 'RRR', lengthSec: 216, year: 2022 };
+  const other = { platform: 'apple' as const, url: 'https://music.apple.com/x', id: '1', title: 'Naatu Naatu', artists: ['Rahul Sipligunj'], album: 'Hushaaru (Original Motion Picture Soundtrack)' };
+  assert.equal(acceptCandidate(q, { ...other, lengthSec: 262 }), false, 'length 262 s vs 216 s');
+  assert.equal(acceptCandidate(q, { ...other, year: 2018 }), false, 'released 2018, film is 2022');
+  assert.equal(acceptCandidate(q, { ...other, lengthSec: 217, year: 2022 }), true, 'same length and year');
+  assert.equal(acceptCandidate({ ...q, lengthSec: undefined, year: undefined }, other), true, 'no extra info: artist match as before');
+  assert.equal(acceptCandidate(q, { ...other, album: 'RRR (Telugu)', lengthSec: 262 }), true, 'the film album itself is always fine');
+});
+
 test('acceptCandidate: needs a close title AND a matching artist or the film album', () => {
   const q = { title: 'Firestorm', artists: ['Thaman S'], film: 'They Call Him OG' };
   const c = { platform: 'apple' as const, url: 'u', id: '1', title: 'Firestorm', artists: ['Thaman S'], album: 'x' };

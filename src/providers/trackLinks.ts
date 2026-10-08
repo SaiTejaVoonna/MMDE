@@ -3,7 +3,7 @@ import { buildLinks } from '../links/platforms.ts';
 import { normalizeArtist, normalizeTitle, sameArtist, similarity } from '../matching/normalize.ts';
 import { createRateLimiter } from './types.ts';
 
-export interface TrackQuery { title: string; artists: string[]; film: string }
+export interface TrackQuery { title: string; artists: string[]; film: string; /** Song length and the film's year, when known: they tell the song from a same-named one by the same singer on another film. */ lengthSec?: number; year?: number }
 export interface TrackLinksResult {
   /** One link per platform. kind 'resolved' = a verified catalog match; 'search' = only a search URL. */
   links: PlatformLink[];
@@ -12,7 +12,7 @@ export interface TrackLinksResult {
   matchedOn: string[];
 }
 
-interface Candidate { platform: 'apple' | 'deezer'; url: string; id: string; title: string; artists: string[]; album: string; art?: string }
+interface Candidate { platform: 'apple' | 'deezer'; url: string; id: string; title: string; artists: string[]; album: string; art?: string; lengthSec?: number; year?: number }
 
 /** Accept a catalog hit only when the title matches closely AND (an artist matches OR the album is the film). */
 export function acceptCandidate(q: TrackQuery, c: Candidate): boolean {
@@ -23,7 +23,13 @@ export function acceptCandidate(q: TrackQuery, c: Candidate): boolean {
   const artistOk = wantArtists.length > 0 && wantArtists.some((a) => gotArtists.some((g) => sameArtist(a, g)));
   const film = normalizeTitle(q.film);
   const albumOk = film.length > 2 && normalizeTitle(c.album).includes(film);
-  return artistOk || albumOk;
+  if (albumOk) return true;
+  if (!artistOk) return false;
+  // Singers record many songs, and titles repeat across films ("Naatu Naatu" on an unrelated 2018 album by the same singer):
+  // an artist match alone is not enough when the length or the year says it is a different release.
+  if (q.lengthSec && c.lengthSec) return Math.abs(q.lengthSec - c.lengthSec) <= 3;
+  if (q.year && c.year) return c.year >= q.year - 1 && c.year <= q.year + 2;
+  return true;
 }
 
 /**
@@ -45,7 +51,7 @@ export function trackLinkResolver(userAgent: string, fetchImpl: typeof fetch = f
       await appleWait();
       const d = await json(`https://itunes.apple.com/search?${new URLSearchParams({ term, entity: 'song', limit: '8' })}`);
       for (const r of d.results ?? []) {
-        const c: Candidate = { platform: 'apple', url: String(r.trackViewUrl ?? ''), id: String(r.trackId ?? ''), title: String(r.trackName ?? ''), artists: [String(r.artistName ?? '')], album: String(r.collectionName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined };
+        const c: Candidate = { platform: 'apple', url: String(r.trackViewUrl ?? ''), id: String(r.trackId ?? ''), title: String(r.trackName ?? ''), artists: [String(r.artistName ?? '')], album: String(r.collectionName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, lengthSec: r.trackTimeMillis ? Math.round(r.trackTimeMillis / 1000) : undefined, year: r.releaseDate ? Number(String(r.releaseDate).slice(0, 4)) || undefined : undefined };
         if (c.url && acceptCandidate(q, c)) return c;
       }
     }
@@ -56,7 +62,7 @@ export function trackLinkResolver(userAgent: string, fetchImpl: typeof fetch = f
       await deezerWait();
       const d = await json(`https://api.deezer.com/search?${new URLSearchParams({ q: term, limit: '8' })}`);
       for (const r of d.data ?? []) {
-        const c: Candidate = { platform: 'deezer', url: String(r.link ?? ''), id: String(r.id ?? ''), title: String(r.title ?? ''), artists: [String(r.artist?.name ?? '')], album: String(r.album?.title ?? ''), art: r.album?.cover_medium ? String(r.album.cover_medium) : undefined };
+        const c: Candidate = { platform: 'deezer', url: String(r.link ?? ''), id: String(r.id ?? ''), title: String(r.title ?? ''), artists: [String(r.artist?.name ?? '')], album: String(r.album?.title ?? ''), art: r.album?.cover_medium ? String(r.album.cover_medium) : undefined, lengthSec: r.duration || undefined };
         if (c.url && acceptCandidate(q, c)) return c;
       }
     }
@@ -64,7 +70,7 @@ export function trackLinkResolver(userAgent: string, fetchImpl: typeof fetch = f
   }
   return {
     async resolve(q: TrackQuery): Promise<TrackLinksResult> {
-      const key = `${normalizeTitle(q.title)}|${normalizeArtist(q.artists[0] ?? '')}|${normalizeTitle(q.film)}`;
+      const key = `${normalizeTitle(q.title)}|${normalizeArtist(q.artists[0] ?? '')}|${normalizeTitle(q.film)}|${q.lengthSec ?? ''}|${q.year ?? ''}`;
       const hit = cache.get(key);
       if (hit && Date.now() - hit.at < 86_400_000) return hit.value;
       const [a, d] = await Promise.allSettled([apple(q), deezer(q)]);

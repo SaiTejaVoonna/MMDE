@@ -167,7 +167,7 @@
     draw();
     if (meta && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); seen = true; loadIsrc(); } }); io.observe(row); }
     return { el: row, set, resolve: async () => {
-      try { set(await call('/api/track-links?title=' + encodeURIComponent(t.title) + '&film=' + encodeURIComponent(film.title) + '&artist=' + encodeURIComponent((t.artists || []).slice(0, 3).join('|')))); }
+      try { set(await call('/api/track-links?title=' + encodeURIComponent(t.title) + '&film=' + encodeURIComponent(film.title) + '&artist=' + encodeURIComponent((t.artists || []).slice(0, 3).join('|')) + (t.lengthSec ? '&length=' + t.lengthSec : '') + (film.year ? '&year=' + film.year : ''))); }
       catch (e) { /* keep the search links; they still work */ }
       // keep a saved favorite in step with newly found links
       const f = fav(); if (f) { f.links = links; f.art = art; saveLib(); }
