@@ -122,3 +122,76 @@ test('/api/soundtrack and /api/track-links: validation, 503 when unavailable, ca
   try { assert.equal((await fetch(`${b2}/api/soundtrack?title=abc`)).status, 503); assert.equal((await fetch(`${b2}/api/track-links?title=abc`)).status, 503); }
   finally { await new Promise<void>((r) => off.close(() => r())); }
 });
+
+import { foldTitle, titleVariants } from '../src/providers/wikiSoundtrack.ts';
+test('accent and spelling variants: TMDB "Bāhubali 2" finds Wikipedia "Baahubali 2"', async () => {
+  assert.deepEqual(titleVariants('Bāhubali 2: The Conclusion'), ['Bāhubali 2: The Conclusion', 'Bahubali 2: The Conclusion', 'Baahubali 2: The Conclusion']);
+  assert.equal(foldTitle('Bāhubali 2: The Conclusion'), foldTitle('Baahubali 2: The Conclusion (soundtrack)').replace(/ soundtrack$/, ''));
+  const { f } = fakeWiki({ 'Baahubali 2: The Conclusion (soundtrack)': fixture });
+  const r = await wikiSoundtrack('t', f).find('Bāhubali 2: The Conclusion', 2017);
+  assert.equal(r?.page.title, 'Baahubali 2: The Conclusion (soundtrack)');
+});
+
+import { catalogResolver, isFilmAlbum, looseFold } from '../src/providers/catalogAlbums.ts';
+
+test('isFilmAlbum: whole film title, accent and spelling tolerant; rejects unrelated albums', () => {
+  assert.equal(looseFold('Bāhubali 2: The Conclusion'), looseFold('Baahubali 2 - The Conclusion'));
+  assert.equal(isFilmAlbum('Bāhubali 2: The Conclusion', 'Baahubali 2 - The Conclusion (Original Motion Picture Soundtrack)'), true);
+  assert.equal(isFilmAlbum('They Call Him OG', 'OG (Original Motion Picture Soundtrack)'), false, 'a shorter name is not the same film');
+  assert.equal(isFilmAlbum('Up', 'Up'), false, 'titles under 3 letters are too ambiguous to match on');
+  assert.equal(isFilmAlbum('Bāhubali', 'Greatest Hits'), false);
+});
+
+test('catalogResolver: finds soundtrack albums on Apple and Deezer, dedupes, labels playlists, lists tracks with direct links', async () => {
+  const f = (async (u: string) => {
+    const url = new URL(String(u)); const path = url.pathname;
+    const body = (o: unknown) => new Response(JSON.stringify(o), { status: 200 });
+    if (url.hostname === 'itunes.apple.com' && path === '/search') return body({ results: [
+      { collectionId: 11, collectionName: 'Baahubali 2 - The Conclusion (Telugu) [Original Motion Picture Soundtrack]', artistName: 'M. M. Keeravani', trackCount: 8, collectionViewUrl: 'https://music.apple.com/in/album/x/11', artworkUrl100: 'https://a/100x100bb.jpg' },
+      { collectionId: 12, collectionName: 'Unrelated Hits', artistName: 'X', trackCount: 10, collectionViewUrl: 'https://music.apple.com/in/album/y/12' },
+    ] });
+    if (url.hostname === 'itunes.apple.com' && path === '/lookup') return body({ results: [{ wrapperType: 'collection' }, { wrapperType: 'track', trackNumber: 2, trackName: 'Sivuni Aana', artistName: 'Kaala Bhairava', trackTimeMillis: 240000, trackViewUrl: 'https://music.apple.com/in/album/x/11?i=22', trackId: 22 }, { wrapperType: 'track', trackNumber: 1, trackName: 'Saahore Baahubali', artistName: 'Daler Mehndi', trackTimeMillis: 300000, trackViewUrl: 'https://music.apple.com/in/album/x/11?i=21', trackId: 21 }] });
+    if (path === '/search/album') return body({ data: [
+      { id: 31, title: 'Baahubali 2 - The Conclusion (Telugu) [Original Motion Picture Soundtrack]', link: 'https://www.deezer.com/album/31', nb_tracks: 8, artist: { name: 'M. M. Keeravani' } },
+      { id: 32, title: 'Baahubali 2 The Conclusion (Hindi)', link: 'https://www.deezer.com/album/32', nb_tracks: 7, artist: { name: 'M. M. Keeravani' } },
+    ] });
+    if (path === '/search/playlist') return body({ data: [{ id: 41, title: 'Baahubali 2 songs', link: 'https://www.deezer.com/playlist/41', nb_tracks: 20, user: { name: 'fan123' } }, { id: 42, title: 'Baahubali 2 tiny', link: 'x', nb_tracks: 2, user: { name: 'z' } }] });
+    if (path === '/album/32/tracks') return body({ data: [{ id: 5, title: 'Jiyo Re Baahubali', link: 'https://www.deezer.com/track/5', duration: 200, artist: { name: 'Kaala Bhairava' }, album: { cover_medium: 'https://d/c.jpg' } }] });
+    return new Response('{}', { status: 404 });
+  }) as unknown as typeof fetch;
+  const c = catalogResolver('t', f);
+  const albums = await c.findAlbums('Bāhubali 2: The Conclusion', 2017);
+  assert.deepEqual(albums.map((a) => [a.platform, a.name.slice(0, 22)]), [['apple', 'Baahubali 2 - The Conc'], ['deezer', 'Baahubali 2 The Conclu'], ['deezer-playlist', 'Baahubali 2 songs']], 'unrelated album dropped, Telugu Deezer duplicate of Apple dropped, tiny playlist dropped');
+  assert.equal(albums[0]!.art, 'https://a/300x300bb.jpg');
+  const t = await c.tracks('apple', '11');
+  assert.deepEqual(t.map((x) => x.title), ['Saahore Baahubali', 'Sivuni Aana'], 'sorted by track number');
+  assert.equal(t[0]!.url, 'https://music.apple.com/in/album/x/11?i=21'); assert.equal(t[0]!.lengthSec, 300);
+  const d = await c.tracks('deezer', '32');
+  assert.equal(d[0]!.url, 'https://www.deezer.com/track/5');
+  await assert.rejects(c.tracks('apple', '../x'), /invalid id/);
+});
+
+test('/api/albums and /api/album-tracks: validation and 503 when unavailable', async () => {
+  const server = createApp({
+    providers: [], mediaResolvers: [], linkResolvers: [], store: jsonStore(), webRoot: '.',
+    albums: async () => [], albumTracks: async () => [],
+    rateLimit: { general: { windowMs: 60_000, max: 1000 }, discover: { windowMs: 60_000, max: 1000 } },
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    assert.equal((await fetch(`${base}/api/albums?title=x`)).status, 400);
+    assert.deepEqual(await (await fetch(`${base}/api/albums?title=Baahubali`)).json(), { albums: [] });
+    for (const q of ['platform=spotify&id=1', 'platform=apple&id=abc', 'platform=apple&id=1/../2']) assert.equal((await fetch(`${base}/api/album-tracks?${q}`)).status, 400, q);
+    assert.equal((await fetch(`${base}/api/album-tracks?platform=deezer&id=5`)).status, 200);
+  } finally { await new Promise<void>((r) => server.close(() => r())); }
+  const off = createApp({ providers: [], mediaResolvers: [], linkResolvers: [], store: jsonStore(), webRoot: '.' });
+  await new Promise<void>((r) => off.listen(0, r));
+  try { assert.equal((await fetch(`http://127.0.0.1:${(off.address() as AddressInfo).port}/api/albums?title=abc`)).status, 503); } finally { await new Promise<void>((r) => off.close(() => r())); }
+});
+
+import { isFilmPlaylist } from '../src/providers/catalogAlbums.ts';
+test('isFilmPlaylist: a numbered sequel may drop its subtitle, a bare franchise name may not', () => {
+  assert.equal(isFilmPlaylist('Baahubali 2: The Conclusion', 'Baahubali 2 songs'), true);
+  assert.equal(isFilmPlaylist('Star Wars: The Force Awakens', 'Star Wars playlist'), false);
+});

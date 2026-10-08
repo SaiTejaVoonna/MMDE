@@ -146,19 +146,19 @@
     return Promise.all(Array.from({ length: concurrency }, worker));
   };
 
+  const PLATFORM_NAME = { apple: 'Apple Music', deezer: 'Deezer', 'deezer-playlist': 'Deezer' };
   const soundtrackCard = (d) => {
     const body = el('div', {});
     const card = el('div', { class: 'card' }, el('h3', {}, 'Soundtrack'), body);
     const token = viewToken;
-    body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Looking for the soundtrack on Wikipedia...')));
+    body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Looking on Wikipedia, Apple Music and Deezer...')));
     const film = { id: d.id, title: d.title, kind: d.kind, year: d.year, posterPath: d.posterPath };
     const yt = el('a', { href: safeUrl(searchLink('youtube', d.title + ' ' + (d.year || '') + ' soundtrack')), target: '_blank', rel: 'noopener noreferrer' }, 'Search YouTube for the ' + d.title + ' soundtrack');
-    call('/api/soundtrack?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '')).then((r) => {
-      if (token !== viewToken) return;
-      const st = r.soundtrack;
-      if (!st || !st.sections || !st.sections.length) { body.replaceChildren(el('p', { class: 'note' }, 'No soundtrack list was found on Wikipedia for this title yet. '), yt); return; }
-      const total = st.sections.reduce((n, x) => n + x.tracks.length, 0);
-      const toResolve = [];
+    const q = encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '');
+    const wikiP = call('/api/soundtrack?title=' + q).then((r) => ({ st: r.soundtrack })).catch((e) => ({ error: e.message }));
+    const albP = call('/api/albums?title=' + q).then((r) => r.albums || []).catch(() => []);
+
+    const wikiNodes = (st, toResolve) => {
       const sections = st.sections.map((sec, idx) => {
         const rows = sec.tracks.map((t) => trackRow(film, sec.name, t));
         const big = sec.tracks.length > 12;
@@ -170,12 +170,52 @@
         if (!big) toResolve.push(...rows);
         return det;
       });
-      body.replaceChildren(
-        el('p', { class: 'note' }, total + ' tracks in ' + st.sections.length + ' sections. Buttons marked solid are verified Apple Music or Deezer matches; dashed ones open a search. MMDE never plays or hosts audio.'),
-        ...sections,
-        el('p', { class: 'note' }, 'Tracklist from ', el('a', { href: safeUrl(st.page.url), target: '_blank', rel: 'noopener noreferrer' }, 'Wikipedia: ' + st.page.title), ' (CC BY-SA 4.0).'));
+      const total = st.sections.reduce((n, x) => n + x.tracks.length, 0);
+      return [
+        el('p', { class: 'note' }, total + ' tracks in ' + st.sections.length + ' sections, from ', el('a', { href: safeUrl(st.page.url), target: '_blank', rel: 'noopener noreferrer' }, 'Wikipedia: ' + st.page.title), ' (CC BY-SA 4.0).'),
+        ...sections];
+    };
+
+    // Albums and playlists found straight in the music catalogs. Tracks load when you open one; their links are direct.
+    const albumNodes = (albums, openFirst) => albums.map((al, idx) => {
+      const plat = al.platform === 'deezer-playlist' ? 'deezer' : al.platform;
+      const label = al.kind === 'playlist' ? 'Community playlist (unverified)' : 'Album';
+      const secName = (PLATFORM_NAME[al.platform]) + ': ' + al.name;
+      const inner = el('div', {});
+      const det = el('details', { class: 'tsection' },
+        el('summary', {}, label + ' · ' + al.name + ' · ' + (al.trackCount || '?') + ' tracks · ' + PLATFORM_NAME[al.platform]),
+        el('p', { class: 'note' }, (al.kind === 'playlist' ? 'Made by ' : 'By ') + (al.artist || 'unknown') + '. ', el('a', { href: safeUrl(al.url), target: '_blank', rel: 'noopener noreferrer' }, 'Open on ' + PLATFORM_NAME[al.platform])),
+        inner);
+      let loaded = false;
+      const load = () => {
+        if (loaded) return; loaded = true;
+        inner.replaceChildren(el('p', { class: 'note' }, 'Loading tracks...'));
+        call('/api/album-tracks?platform=' + encodeURIComponent(al.platform) + '&id=' + encodeURIComponent(al.id)).then((r) => {
+          if (token !== viewToken) return;
+          inner.replaceChildren(...(r.tracks || []).map((t) => trackRow(film, secName, { no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec }, { links: { [plat]: { url: t.url, kind: 'resolved' } }, art: t.art || al.art }).el));
+          if (!(r.tracks || []).length) inner.replaceChildren(el('p', { class: 'note' }, 'No tracks came back for this one.'));
+        }).catch((e) => { loaded = false; inner.replaceChildren(el('p', { class: 'note' }, 'Could not load tracks: ' + e.message + ' (close and open to retry)')); });
+      };
+      det.addEventListener('toggle', () => { if (det.open) load(); });
+      if (openFirst && idx === 0) det.open = true;
+      return det;
+    });
+
+    Promise.all([wikiP, albP]).then(([w, albums]) => {
+      if (token !== viewToken) return;
+      const toResolve = [];
+      const out = [];
+      const found = w.st && w.st.sections && w.st.sections.length;
+      if (found) out.push(...wikiNodes(w.st, toResolve));
+      if (albums.length) {
+        out.push(el('p', { class: 'note', style: 'margin-top:14px' }, found ? 'Also found on Apple Music and Deezer:' : (w.error ? 'Could not reach Wikipedia, but these were found on Apple Music and Deezer:' : 'Wikipedia has no tracklist for this title. These albums and playlists were found on Apple Music and Deezer:')), ...albumNodes(albums, !found));
+      }
+      if (!out.length) { body.replaceChildren(el('p', { class: 'note' }, (w.error ? 'Could not load the soundtrack: ' + w.error : 'No soundtrack list was found on Wikipedia, Apple Music or Deezer for this title yet.') + ' '), yt); return; }
+      out.unshift(el('p', { class: 'note' }, 'Solid buttons are verified Apple Music or Deezer matches; dashed ones open a search. MMDE never plays or hosts audio.'));
+      out.push(el('p', { class: 'note' }, 'Looking somewhere else? ', yt));
+      body.replaceChildren(...out);
       resolveQueue(toResolve, token, 2);
-    }).catch((e) => { if (token === viewToken) body.replaceChildren(el('p', { class: 'note' }, 'Could not load the soundtrack: ' + e.message + ' '), yt); });
+    });
     return card;
   };
 

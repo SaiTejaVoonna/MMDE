@@ -12,6 +12,7 @@ import { organize } from '../app/organize.ts';
 import { tmdbSeasons, tmdbDetails, type TmdbSeason, type TmdbDetails } from '../providers/tmdb.ts';
 import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { TrackLinksResult, TrackQuery } from '../providers/trackLinks.ts';
+import type { CatalogAlbum, CatalogPlatform, CatalogTrack } from '../providers/catalogAlbums.ts';
 import { decideCors } from './cors.ts';
 import { clientKey, createRateLimiter, type Limit } from './rateLimit.ts';
 
@@ -34,6 +35,9 @@ export interface AppDeps extends Deps {
   soundtrack?: (title: string, year?: number) => Promise<Soundtrack | null>;
   /** Per-track Apple Music / Deezer match. Absent = 503. */
   trackLinks?: (q: TrackQuery) => Promise<TrackLinksResult>;
+  /** Apple Music / Deezer albums and playlists named after a film (fallback when Wikipedia has no tracklist). */
+  albums?: (title: string, year?: number) => Promise<CatalogAlbum[]>;
+  albumTracks?: (platform: CatalogPlatform, id: string) => Promise<CatalogTrack[]>;
 }
 
 const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 300 }, discover: { windowMs: 60_000, max: 12 } };
@@ -184,6 +188,22 @@ export function createApp(deps: AppDeps): Server {
         if (title.length < 1 || title.length > 140 || film.length > 140) return send(res, 400, { error: 'invalid title or film' });
         try { return send(res, 200, await deps.trackLinks({ title, artists, film })); }
         catch (e) { return send(res, 502, { error: `track link lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
+      if (req.method === 'GET' && path === '/api/albums') {
+        if (!deps.albums) return send(res, 503, { error: 'album lookup is not available on this server' });
+        const title = (url.searchParams.get('title') ?? '').trim();
+        const yearRaw = url.searchParams.get('year');
+        if (title.length < 2 || title.length > 120) return send(res, 400, { error: 'title must be 2-120 characters' });
+        try { return send(res, 200, { albums: await deps.albums(title, yearRaw && /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : undefined) }); }
+        catch (e) { return send(res, 502, { error: `album lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
+      if (req.method === 'GET' && path === '/api/album-tracks') {
+        if (!deps.albumTracks) return send(res, 503, { error: 'album lookup is not available on this server' });
+        const platform = url.searchParams.get('platform') ?? '';
+        const id = url.searchParams.get('id') ?? '';
+        if (!['apple', 'deezer', 'deezer-playlist'].includes(platform) || !/^\d{1,15}$/.test(id)) return send(res, 400, { error: 'invalid platform or id' });
+        try { return send(res, 200, { tracks: await deps.albumTracks(platform as CatalogPlatform, id) }); }
+        catch (e) { return send(res, 502, { error: `track list failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/media') return send(res, 200, { items: await deps.store.list() });
       if (req.method === 'GET' && path.startsWith('/api/media/')) {

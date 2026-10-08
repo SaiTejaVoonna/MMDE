@@ -8,6 +8,7 @@ import { curatedProvider } from '../providers/curated.ts';
 import { tmdbResolver, tmdbSeasons, tmdbDetails } from '../providers/tmdb.ts';
 import { wikiSoundtrack } from '../providers/wikiSoundtrack.ts';
 import { trackLinkResolver } from '../providers/trackLinks.ts';
+import { catalogResolver } from '../providers/catalogAlbums.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
 import { loadSeeds, seedMediaResolver } from '../providers/seeds.ts';
 import { anthropicComplete, wikiLlmProvider } from '../providers/wikiLlm.ts';
@@ -31,11 +32,11 @@ const tmdbToken = process.env.TMDB_READ_ACCESS_TOKEN;
 const tmdbTestBase = process.env.MMDE_TMDB_TEST_BASE;
 const tmdbFetch: typeof fetch = tmdbTestBase ? ((u, i) => fetch(String(u).replace('https://api.themoviedb.org/3', tmdbTestBase), i)) : fetch;
 if (tmdbToken && !offline) mediaResolvers.unshift(tmdbResolver(tmdbToken, tmdbFetch));
-// Test hook only (unset in real use): point Wikipedia / iTunes / Deezer at fake servers for browser tests.
+// Test hook only (unset in real use): point Wikipedia / iTunes / Deezer at fake servers (origin only, e.g. http://127.0.0.1:9912) for browser tests.
 const hostMap: Array<[string, string | undefined]> = [
-  ['https://en.wikipedia.org/w/api.php', process.env.MMDE_WIKI_TEST_BASE],
-  ['https://itunes.apple.com/search', process.env.MMDE_ITUNES_TEST_BASE],
-  ['https://api.deezer.com/search', process.env.MMDE_DEEZER_TEST_BASE],
+  ['https://en.wikipedia.org', process.env.MMDE_WIKI_TEST_BASE],
+  ['https://itunes.apple.com', process.env.MMDE_ITUNES_TEST_BASE],
+  ['https://api.deezer.com', process.env.MMDE_DEEZER_TEST_BASE],
 ];
 const musicFetch: typeof fetch = hostMap.some(([, b]) => b)
   ? ((u, i) => { let url = String(u); for (const [from, to] of hostMap) if (to) url = url.replace(from, to); return fetch(url, i); })
@@ -65,6 +66,7 @@ createApp({
   details: (id, token) => tmdbDetails(id, token, tmdbFetch),
   soundtrack: offline ? undefined : (title, year) => wikiSoundtrack(userAgent, musicFetch).find(title, year),
   trackLinks: offline ? undefined : ((r) => (q) => r.resolve(q))(trackLinkResolver(userAgent, musicFetch)),
+  ...(offline ? {} : ((c) => ({ albums: c.findAlbums, albumTracks: c.tracks }))(catalogResolver(userAgent, musicFetch))),
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),
 }).listen(port, () => {
   console.log(`MMDE prototype on http://localhost:${port}  (${offline ? 'OFFLINE: local seeds only' : 'live providers enabled'})`);
