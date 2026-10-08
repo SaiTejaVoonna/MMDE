@@ -10,6 +10,7 @@ import { wikiSoundtrack } from '../providers/wikiSoundtrack.ts';
 import { trackLinkResolver } from '../providers/trackLinks.ts';
 import { catalogResolver } from '../providers/catalogAlbums.ts';
 import { animeThemesSource } from '../providers/animeThemesSearch.ts';
+import { mbReleaseSource } from '../providers/mbReleases.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
 import { loadSeeds, seedMediaResolver } from '../providers/seeds.ts';
 import { anthropicComplete, wikiLlmProvider } from '../providers/wikiLlm.ts';
@@ -39,6 +40,7 @@ const hostMap: Array<[string, string | undefined]> = [
   ['https://itunes.apple.com', process.env.MMDE_ITUNES_TEST_BASE],
   ['https://api.deezer.com', process.env.MMDE_DEEZER_TEST_BASE],
   ['https://api.animethemes.moe', process.env.MMDE_ANIMETHEMES_TEST_BASE],
+  ['https://musicbrainz.org', process.env.MMDE_MUSICBRAINZ_TEST_BASE],
 ];
 const musicFetch: typeof fetch = hostMap.some(([, b]) => b)
   ? ((u, i) => { let url = String(u); for (const [from, to] of hostMap) if (to) url = url.replace(from, to); return fetch(url, i); })
@@ -69,7 +71,7 @@ createApp({
   trending: (kind, token) => tmdbTrending(token, kind, tmdbFetch),
   soundtrack: offline ? undefined : (title, year, alts) => wikiSoundtrack(userAgent, musicFetch).find(title, year, alts),
   trackLinks: offline ? undefined : ((r) => (q) => r.resolve(q))(trackLinkResolver(userAgent, musicFetch)),
-  ...(offline ? {} : ((c, at) => ({ albums: c.findAlbums, albumTracks: c.tracks, animeThemes: at.find }))(catalogResolver(userAgent, musicFetch), animeThemesSource(userAgent, musicFetch))),
+  ...(offline ? {} : ((c, at, mb) => ({ albums: c.findAlbums, albumTracks: c.tracks, animeThemes: at.find, musicBrainz: mb.find }))(catalogResolver(userAgent, musicFetch), animeThemesSource(userAgent, musicFetch), mbReleaseSource(userAgent, musicFetch))),
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),
 }).listen(port, () => {
   console.log(`MMDE prototype on http://localhost:${port}  (${offline ? 'OFFLINE: local seeds only' : 'live providers enabled'})`);

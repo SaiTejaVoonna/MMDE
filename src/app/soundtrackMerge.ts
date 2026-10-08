@@ -2,6 +2,7 @@ import { classifyVersion, normalizeArtist, normalizeTitle } from '../matching/no
 import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { CatalogAlbum, CatalogTrack } from '../providers/catalogAlbums.ts';
 import type { AnimeThemesEntry } from '../providers/animeThemesSearch.ts';
+import { languageFromName, type MbRelease } from '../providers/mbReleases.ts';
 import { artistMatches, looseFold } from '../providers/catalogAlbums.ts';
 import { classifyForSeason, seasonMarkers, type SeasonFit } from './seasonScope.ts';
 
@@ -12,10 +13,16 @@ import { classifyForSeason, seasonMarkers, type SeasonFit } from './seasonScope.
 //   red   = only a community playlist / unverified  (anyone can make those)
 
 export type Confidence = 'green' | 'amber' | 'red';
-export type EvidenceSource = 'wikipedia' | 'apple' | 'deezer' | 'animethemes' | 'credits' | 'community';
+export type EvidenceSource = 'wikipedia' | 'apple' | 'deezer' | 'musicbrainz' | 'animethemes' | 'credits' | 'community';
 export interface Evidence { source: EvidenceSource; label: string; url?: string }
+/** The public paper trail of an official release: what the catalogs (not the audio) say about a song. */
+export interface ReleaseProof { isrc?: string; label?: string; upc?: string; releaseDate?: string; release?: string; releaseUrl?: string }
 export interface MergedTrack {
   key: string;
+  /** Official Release Proof, from MusicBrainz (ISRC, label, barcode, date). Absent when no release database lists the song. */
+  proof?: ReleaseProof;
+  /** The same song in another language release (matched by track number, length and composer, NOT by title): probable, never confirmed. */
+  versions?: Array<{ language: string; title: string; section: string }>;
   no?: number;
   title: string;
   artists: string[];
@@ -26,7 +33,7 @@ export interface MergedTrack {
   links: { apple?: string; deezer?: string };
   art?: string;
 }
-export interface MergedSection { name: string; origin: 'wikipedia' | 'catalog' | 'community' | 'animethemes'; tracks: MergedTrack[]; releaseDate?: string; /** The date is exact (a season's start), so it only matches the season that aired that year. */ exactYear?: boolean; /** Only set when a season was requested: does this section belong to it? */ scope?: 'match' | 'unspecified' }
+export interface MergedSection { name: string; origin: 'wikipedia' | 'catalog' | 'community' | 'animethemes'; tracks: MergedTrack[]; /** Release language (Telugu, Hindi...), when known. */ language?: string; releaseDate?: string; /** The date is exact (a season's start), so it only matches the season that aired that year. */ exactYear?: boolean; /** Only set when a season was requested: does this section belong to it? */ scope?: 'match' | 'unspecified' }
 export interface AlbumWithTracks { album: CatalogAlbum; tracks: CatalogTrack[] }
 export interface MergedSoundtrack {
   sections: MergedSection[];
@@ -35,6 +42,8 @@ export interface MergedSoundtrack {
   /** Albums/playlists that were found but dropped because neither artist nor songs matched this title. */
   skipped: Array<{ name: string; platform: string; reason: string }>;
   counts: { green: number; amber: number; red: number; total: number };
+  /** Languages of the releases found, with song counts. */
+  languages: Array<{ language: string; songs: number }>;
   /** How we know the albums belong to this title: the film's composer (TMDB), a Wikipedia tracklist, or 'none' (matched by name only). */
   verified: 'composer' | 'wikipedia' | 'title' | 'none';
   /** Set when the list was scoped to one season. */
@@ -52,6 +61,7 @@ export function confidenceOf(evidence: Evidence[]): Confidence {
   const kinds = new Set(evidence.filter((e) => e.source !== 'community' && e.source !== 'credits').map((e) => e.source));
   if (kinds.size >= 2) return 'green';
   // "The credited artist is the film's composer" supports a song, but only counts as confirmation next to a catalog listing.
+  // (MusicBrainz releases are admitted BY the composer match, so that match cannot also confirm them.)
   const inCatalog = kinds.has('apple') || kinds.has('deezer');
   if (kinds.size === 1 && inCatalog && evidence.some((e) => e.source === 'credits')) return 'green';
   return kinds.size === 1 ? 'amber' : 'red';
@@ -63,7 +73,25 @@ function unionArtists(a: string[], b: string[]): string[] {
   return [...seen.values()];
 }
 
-export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped']; titleVerified?: boolean; animeThemes?: AnimeThemesEntry[]; season?: { number: number; airYear?: number; excluded?: number } } = {}): MergedSoundtrack {
+/**
+ * A film often has a Telugu, a Hindi and a Tamil album: same composer, same music, different titles/scripts. Titles cannot link them,
+ * so songs in releases of DIFFERENT languages are linked as a "probable" version when they share the track number and have almost the
+ * same length (dubs keep the music). Never used to raise confidence; the UI says "probably".
+ */
+export function linkVersions(sections: MergedSection[], toleranceSec = 3): void {
+  const withLang = sections.filter((s) => s.language);
+  if (new Set(withLang.map((s) => s.language)).size < 2) return;
+  for (const a of withLang) for (const t of a.tracks) {
+    if (!t.lengthSec || t.lengthSec < 60 || !t.no) continue;
+    for (const b of withLang) {
+      if (b.language === a.language) continue;
+      const hit = b.tracks.find((u) => u.no === t.no && u.lengthSec && Math.abs(u.lengthSec - t.lengthSec!) <= toleranceSec && u.key !== t.key);
+      if (hit && !(t.versions ?? []).some((v) => v.language === b.language)) (t.versions ??= []).push({ language: b.language!, title: hit.title, section: b.name });
+    }
+  }
+}
+
+export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped']; titleVerified?: boolean; animeThemes?: AnimeThemesEntry[]; mbReleases?: MbRelease[]; season?: { number: number; airYear?: number; excluded?: number } } = {}): MergedSoundtrack {
   const sections: MergedSection[] = [];
   const byKey = new Map<string, MergedTrack>(); // every song seen so far, wherever it was first listed
   const addEvidence = (t: MergedTrack, e: Evidence) => { if (!t.evidence.some((x) => x.source === e.source && x.label === e.label)) t.evidence.push(e); };
@@ -121,7 +149,29 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
         byKey.set(key, m); fresh.push(m);
       }
     }
-    if (fresh.length) sections.push({ name: `${PLATFORM_LABEL[album.platform]}: ${album.name}`, origin: 'catalog', tracks: fresh, releaseDate: album.releaseDate });
+    if (fresh.length) sections.push({ name: `${PLATFORM_LABEL[album.platform]}: ${album.name}`, origin: 'catalog', tracks: fresh, releaseDate: album.releaseDate, language: languageFromName(album.name) });
+  }
+
+  // 2b. MusicBrainz: the release database. Adds an independent confirmation plus the paper trail (ISRC, label, barcode, date).
+  for (const rel of opts.mbReleases ?? []) {
+    const ev: Evidence = { source: 'musicbrainz', label: `MusicBrainz: ${rel.title}${rel.label ? ` (${rel.label}${rel.date ? ', ' + rel.date : ''})` : rel.date ? ` (${rel.date})` : ''}`, url: rel.url };
+    const proofOf = (isrc: string | undefined): ReleaseProof => ({ isrc, label: rel.label, upc: rel.barcode, releaseDate: rel.date, release: rel.title, releaseUrl: rel.url });
+    const fresh: MergedTrack[] = [];
+    for (const t of rel.tracks) {
+      const key = trackKey(t.title);
+      const known = byKey.get(key);
+      if (known) {
+        addEvidence(known, ev);
+        known.proof ??= proofOf(t.isrcs[0]);
+        if (!known.proof.isrc && t.isrcs[0]) known.proof.isrc = t.isrcs[0];
+        known.lengthSec ??= t.lengthSec;
+        known.artists = unionArtists(known.artists, t.artists);
+      } else {
+        const m: MergedTrack = { key, no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec, confidence: 'amber', evidence: [ev], links: {}, proof: proofOf(t.isrcs[0]) };
+        byKey.set(key, m); fresh.push(m);
+      }
+    }
+    if (fresh.length) sections.push({ name: `MusicBrainz: ${rel.title}`, origin: 'catalog', tracks: fresh, releaseDate: rel.date, language: rel.language ?? languageFromName(rel.title) });
   }
 
   // 3. Community playlists never create "confirmed" songs: they only add a (weak) note to known ones, or sit in a red section.
@@ -162,7 +212,11 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
     if (verified === 'none' && t.confidence === 'amber') t.confidence = 'red';
   }
   for (const sec of kept) for (const t of sec.tracks) { counts[t.confidence]++; counts.total++; }
+  linkVersions(kept);
+  const langCount = new Map<string, number>();
+  for (const sec of kept) if (sec.language) langCount.set(sec.language, (langCount.get(sec.language) ?? 0) + sec.tracks.length);
   return {
+    languages: [...langCount].map(([language, songs]) => ({ language, songs })).sort((a, b) => b.songs - a.songs),
     sections: kept, season: opts.season ? { number: opts.season.number, airYear: opts.season.airYear, excluded: (opts.season.excluded ?? 0) + excluded } : undefined, wikipedia: wiki ? { title: wiki.page.title, url: wiki.page.url } : undefined,
     albums: fetched.map((f) => f.album), skipped: opts.skipped ?? [], verified, counts, partial: !!opts.partial,
   };

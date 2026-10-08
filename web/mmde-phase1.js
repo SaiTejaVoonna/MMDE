@@ -64,18 +64,19 @@
     libWatchers.forEach((f) => f());
   };
   const trackKey = (filmId, section, title) => filmId + '|' + section + '|' + title.toLowerCase();
-  const PLATFORMS = [['spotify', 'Spotify'], ['apple', 'Apple Music'], ['youtube', 'YouTube'], ['deezer', 'Deezer']];
+  const PLATFORMS = [['spotify', 'Spotify'], ['apple', 'Apple Music'], ['youtube', 'YouTube'], ['youtubeMusic', 'YouTube Music'], ['deezer', 'Deezer']];
   // Small simplified glyphs (not the official logos), drawn inline so nothing external is loaded.
   const ICONS = {
     spotify: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5.5 9.2c4.4-1.3 9.6-1 13.4 1.3M6.3 12.7c3.5-1 7.2-.7 10.2 1.1M7.2 16c2.7-.7 5.3-.5 7.6.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
     apple: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M16.5 4.5v9.6a3 3 0 1 1-1.8-2.7V7.7l-5 1.2v7.2a3 3 0 1 1-1.8-2.7V6.8z" fill="currentColor"/></svg>',
     youtube: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="3.5" fill="currentColor"/><path d="M10.2 9.3v5.4l4.7-2.7z" fill="var(--icon-cut,#0b0f1a)"/></svg>',
+    youtubeMusic: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10.2 8.9v6.2l5.2-3.1z" fill="currentColor"/></svg>',
     deezer: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><g fill="currentColor"><rect x="3" y="15.5" width="3.6" height="3"/><rect x="7.6" y="15.5" width="3.6" height="3"/><rect x="12.2" y="15.5" width="3.6" height="3"/><rect x="16.8" y="15.5" width="3.6" height="3"/><rect x="12.2" y="11" width="3.6" height="3"/><rect x="16.8" y="11" width="3.6" height="3"/><rect x="16.8" y="6.5" width="3.6" height="3"/></g></svg>',
   };
   const icon = (p) => { const t = document.createElement('template'); t.innerHTML = ICONS[p]; return t.content.firstChild; };
   const searchLink = (p, q) => {
     const e = encodeURIComponent(q);
-    return { youtube: 'https://www.youtube.com/results?search_query=' + e, spotify: 'https://open.spotify.com/search/' + e, apple: 'https://music.apple.com/search?term=' + e, deezer: 'https://www.deezer.com/search/' + e }[p];
+    return { youtube: 'https://www.youtube.com/results?search_query=' + e, youtubeMusic: 'https://music.youtube.com/search?q=' + e, spotify: 'https://open.spotify.com/search/' + e, apple: 'https://music.apple.com/search?term=' + e, deezer: 'https://www.deezer.com/search/' + e }[p];
   };
   const fmtLen = (sec) => (sec ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : '');
   const safeUrl = (u) => (/^https:\/\//.test(u) ? u : '#');
@@ -105,7 +106,7 @@
 
   // One song row: platform buttons (exact = verified catalog match, dashed = search only) and a favorite heart.
   const CONF_TEXT = { green: 'Confirmed: listed by 2 or more independent sources', amber: 'One source: listed by one reputable source', red: 'Unverified: only found in community playlists' };
-  const SRC_NAME = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', credits: 'artist matches composer', animethemes: 'AnimeThemes', community: 'community playlist' };
+  const SRC_NAME = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', credits: 'artist matches composer', animethemes: 'AnimeThemes', musicbrainz: 'MusicBrainz', community: 'community playlist' };
   const trackRow = (film, section, t, initial, meta) => {
     const links = {};
     PLATFORMS.forEach(([p]) => { links[p] = { url: searchLink(p, t.title + ' ' + film.title), kind: 'search' }; });
@@ -122,6 +123,8 @@
         el('span', { class: 'tinfo' },
           el('strong', {}, meta ? el('span', { class: 'cdot cdot-' + meta.confidence, title: CONF_TEXT[meta.confidence] + '\n' + meta.evidence.map((e) => e.label).join('\n') }) : null, t.title),
           el('small', {}, [(t.artists || []).join(', '), fmtLen(t.lengthSec)].filter(Boolean).join(' · ')),
+          meta && meta.proof ? el('small', { class: 'tproof', title: 'From MusicBrainz, a public release database: the same codes the music industry uses to identify a release. MMDE reads the data, never the audio.' }, 'Official release' + [meta.proof.label, meta.proof.releaseDate, meta.proof.isrc ? 'ISRC ' + meta.proof.isrc : '', meta.proof.upc ? 'UPC ' + meta.proof.upc : ''].filter(Boolean).map((x) => ' · ' + x).join('')) : null,
+          meta && meta.versions && meta.versions.length ? el('small', { class: 'tproof', title: 'Matched by track number and length, not by title: probably the same song in another language release' }, 'Probably also in ' + meta.versions.map((v) => v.language + ' ("' + v.title + '")').join(', ')) : null,
           meta ? el('small', { class: 'tsrc' }, [...new Set(meta.evidence.map((e) => SRC_NAME[e.source] || e.source))].join(' + '),
             ...meta.evidence.filter((e) => e.source === 'animethemes' && e.url).slice(0, 1).map((e) => el('a', { class: 'vlink', href: safeUrl(e.url), target: '_blank', rel: 'noopener noreferrer', title: 'Watch this opening/ending on AnimeThemes (opens their site)' }, ' ▶ video'))) : null),
         el('span', { class: 'tpills' }, PLATFORMS.map(([p, name]) => {
@@ -183,15 +186,16 @@
           const initial = { links: {}, art: t.art };
           if (t.links.apple) initial.links.apple = { url: t.links.apple, kind: 'resolved' };
           if (t.links.deezer) initial.links.deezer = { url: t.links.deezer, kind: 'resolved' };
-          const r = trackRow(film, sec.name, t, initial, { confidence: t.confidence, evidence: t.evidence });
+          const r = trackRow(film, sec.name, t, initial, { confidence: t.confidence, evidence: t.evidence, proof: t.proof, versions: t.versions });
           r.missing = !(t.links.apple && t.links.deezer);
           return r;
         });
         const big = rows.length > 12;
         const det = el('details', { class: 'tsection' + (sec.origin === 'community' ? ' tcommunity' : '') }, ...[
-          el('summary', {}, sec.name + ' · ' + rows.length + (rows.length === 1 ? ' track' : ' tracks')),
+          el('summary', {}, sec.name + (sec.language ? ' · ' + sec.language : '') + ' · ' + rows.length + (rows.length === 1 ? ' track' : ' tracks')),
           big ? el('button', { type: 'button', class: 'chip findbtn', onclick: (e) => { const todo = rows.filter((r) => r.missing); e.target.disabled = true; e.target.textContent = 'Finding exact links for ' + todo.length + ' songs... (a few minutes)'; resolveQueue(todo, token, 2).then(() => { e.target.textContent = 'Done: exact links shown where found'; }); } }, 'Find missing Apple Music / Deezer links (takes a while)') : null,
           el('div', { class: 'tbody' }, ...rows.map((r) => r.el))].filter(Boolean));
+        if (sec.language) det.dataset.lang = sec.language;
         if (idx < 2 && sec.origin !== 'community') det.open = true;
         if (!big) toResolve.push(...rows.filter((r) => r.missing));
         return det;
@@ -215,6 +219,7 @@
           el('span', { class: 'viewtoggle' },
             el('button', { type: 'button', class: 'chip active', onclick: (e) => { wrap.classList.remove('tview-list'); wrap.classList.add('tview-cards'); e.currentTarget.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === e.currentTarget)); } }, 'Cards'),
             el('button', { type: 'button', class: 'chip', onclick: (e) => { wrap.classList.remove('tview-cards'); wrap.classList.add('tview-list'); e.currentTarget.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === e.currentTarget)); } }, 'List'))),
+        ...((m.languages || []).length >= 2 ? [el('div', { class: 'chips fchips' }, el('span', { class: 'note' }, 'Language: '), ...['All', ...m.languages.map((x) => x.language)].map((lang, i) => el('button', { type: 'button', class: 'chip' + (i === 0 ? ' active' : ''), onclick: (e) => { const chip = e.currentTarget; chip.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === chip)); wrap.querySelectorAll('.tsection[data-lang]').forEach((x) => { x.hidden = lang !== 'All' && x.dataset.lang !== lang; }); } }, lang === 'All' ? 'All languages' : lang + ' ' + m.languages.find((x) => x.language === lang).songs)))] : []),
         el('p', { class: 'note' }, el('span', { class: 'cdot cdot-green' }), 'confirmed by 2+ independent sources   ', el('span', { class: 'cdot cdot-amber' }), 'one source   ', el('span', { class: 'cdot cdot-red' }), 'only in a community playlist. Solid buttons are direct catalog links; dashed ones open a search.'),
         ...(scope ? [el('p', { class: 'note' }, 'Showing music that belongs to ' + (scope.name || 'Season ' + scope.number) + (scope.airYear ? ' (aired ' + scope.airYear + ')' : '') + '. Albums that name another season are hidden' + (m.season && m.season.excluded ? ' (' + m.season.excluded + ' hidden)' : '') + '.')] : []),
         ...(scope && !sections.length ? [el('p', { class: 'note' }, 'Nothing was found that is tied to this season yet.')] : []),

@@ -184,3 +184,9 @@ button.tlitem:hover .tlgo{text-decoration:underline}
 
 .vlink{color:var(--accent);font-size:11px;text-decoration:none;margin-left:6px}
 .vlink:hover{text-decoration:underline}
+
+/* Official Release Proof line and probable language versions */
+.tproof { display: block; color: var(--muted, #9aa3b2); font-size: .72rem; margin-top: 2px; }
+.tproof::before { content: '✓ '; color: #3ecf8e; }
+.tsection[hidden] { display: none; }
+.plink.exact[data-p=youtubeMusic]{background:#ff9f6b;border-color:#ff9f6b}

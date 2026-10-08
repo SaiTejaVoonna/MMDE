@@ -15,6 +15,7 @@ import type { TrackLinksResult, TrackQuery } from '../providers/trackLinks.ts';
 import type { CatalogAlbum, CatalogPlatform, CatalogTrack } from '../providers/catalogAlbums.ts';
 import { buildMergedSoundtrack } from '../app/soundtrackService.ts';
 import type { AnimeThemesEntry } from '../providers/animeThemesSearch.ts';
+import type { MbRelease } from '../providers/mbReleases.ts';
 import type { MergedSoundtrack } from '../app/soundtrackMerge.ts';
 import { decideCors } from './cors.ts';
 import { clientKey, createRateLimiter, type Limit } from './rateLimit.ts';
@@ -45,6 +46,7 @@ export interface AppDeps extends Deps {
   albumTracks?: (platform: CatalogPlatform, id: string) => Promise<CatalogTrack[]>;
   /** Anime opening/ending songs per season (AnimeThemes). Optional. */
   animeThemes?: (title: string, alts: string[], firstYear?: number) => Promise<AnimeThemesEntry[]>;
+  musicBrainz?: (title: string, alts: string[], composers: string[]) => Promise<MbRelease[]>;
 }
 
 const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 300 }, discover: { windowMs: 60_000, max: 12 } };
@@ -238,7 +240,7 @@ export function createApp(deps: AppDeps): Server {
         const hit = mergedCache.get(key);
         if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value);
         try {
-          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes }, title, year, { composers, alts, season, anime });
+          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes, musicBrainz: deps.musicBrainz }, title, year, { composers, alts, season, anime });
           if (!value.partial) { mergedCache.set(key, { at: Date.now(), value }); if (mergedCache.size > 300) mergedCache.delete(mergedCache.keys().next().value as string); }
           return send(res, 200, value);
         } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }

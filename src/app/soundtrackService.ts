@@ -1,5 +1,6 @@
 import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { AnimeThemesEntry } from '../providers/animeThemesSearch.ts';
+import type { MbRelease } from '../providers/mbReleases.ts';
 import type { CatalogAlbum, CatalogPlatform, CatalogTrack } from '../providers/catalogAlbums.ts';
 import { artistMatches, extraAlbumNames, nameMatchesDistinctiveTitle } from '../providers/catalogAlbums.ts';
 import { trackKey } from './soundtrackMerge.ts';
@@ -12,6 +13,8 @@ export interface SoundtrackSources {
   albumTracks: (platform: CatalogPlatform, id: string) => Promise<CatalogTrack[]>;
   /** Optional: the anime's opening/ending songs per season (AnimeThemes). Only called when the title is anime. */
   animeThemes?: (title: string, alts: string[], firstYear?: number) => Promise<AnimeThemesEntry[]>;
+  /** Optional: official releases from MusicBrainz (label, barcode, date, language, ISRCs). */
+  musicBrainz?: (title: string, alts: string[], composers: string[]) => Promise<MbRelease[]>;
   /** Max time to wait for any one album's track list. Slower ones are skipped and the result is flagged partial. */
   timeoutMs?: number;
 }
@@ -49,8 +52,8 @@ export function belongsToTitle(album: CatalogAlbum, tracks: CatalogTrack[], comp
 
 export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[]; anime?: boolean; season?: { number: number; airYear?: number } } = {}): Promise<MergedSoundtrack> {
   const composers = ctx.composers ?? []; const alts = ctx.alts ?? [];
-  const [w, a, at] = await Promise.allSettled([src.wiki(title, year, alts), src.albums(title, year, undefined, alts), ctx.anime && src.animeThemes ? src.animeThemes(title, alts, year) : Promise.resolve([] as AnimeThemesEntry[])]);
-  if (w.status === 'rejected' && a.status === 'rejected' && !(at.status === 'fulfilled' && at.value.length)) throw w.reason;
+  const [w, a, at, mb] = await Promise.allSettled([src.wiki(title, year, alts), src.albums(title, year, undefined, alts), ctx.anime && src.animeThemes ? src.animeThemes(title, alts, year) : Promise.resolve([] as AnimeThemesEntry[]), src.musicBrainz ? src.musicBrainz(title, alts, composers) : Promise.resolve([] as MbRelease[])]);
+  if (w.status === 'rejected' && a.status === 'rejected' && !(at.status === 'fulfilled' && at.value.length) && !(mb.status === 'fulfilled' && mb.value.length)) throw w.reason;
   let partial = w.status === 'rejected' || a.status === 'rejected';
   const wiki = w.status === 'fulfilled' ? w.value : null;
   let all = a.status === 'fulfilled' ? a.value : [];
@@ -76,5 +79,8 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
   }
   const animeThemes = at.status === 'fulfilled' ? at.value : [];
   if (at.status === 'rejected') partial = true;
-  return mergeSoundtrack(wiki, fetched, { partial, composers, skipped, titleVerified, animeThemes, season: ctx.season ? { ...ctx.season, excluded: preExcluded } : undefined });
+  const mbReleases = mb.status === 'fulfilled' ? mb.value : [];
+  if (mb.status === 'rejected') partial = true;
+  if (mbReleases.some((r) => nameMatchesDistinctiveTitle(r.title, [title, ...alts]))) titleVerified = true;
+  return mergeSoundtrack(wiki, fetched, { partial, composers, skipped, titleVerified, animeThemes, mbReleases, season: ctx.season ? { ...ctx.season, excluded: preExcluded } : undefined });
 }
