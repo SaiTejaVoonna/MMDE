@@ -23,6 +23,7 @@ export interface Media {
   overview?: string;
   popularity?: number;
   originalLanguage?: string;
+  animation?: boolean;
 }
 
 export interface MediaPart extends PartRef { id: string; mediaId: string; title: string }

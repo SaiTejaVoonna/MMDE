@@ -21,6 +21,7 @@ interface TmdbResult {
   popularity?: number;
   overview?: string;
   original_language?: string;
+  genre_ids?: number[];
   media_type?: string;
 }
 
@@ -58,6 +59,7 @@ function mapResult(m: TmdbResult, type: 'tv' | 'movie'): Media {
     ...(m.overview ? { overview: m.overview.slice(0, 220) } : {}),
     ...(typeof m.popularity === 'number' ? { popularity: m.popularity } : {}),
     ...(m.original_language ? { originalLanguage: m.original_language } : {}),
+    ...(m.genre_ids?.includes(16) ? { animation: true } : {}),
   };
 }
 
@@ -85,37 +87,43 @@ function hint<T>(word: string, map: Record<string, T>): T | undefined {
   return key ? map[key] : undefined;
 }
 
-export interface ParsedQuery { text: string; type?: 'tv' | 'movie'; lang?: string; year?: number; hinted: boolean }
+export interface ParsedQuery { text: string; type?: 'tv' | 'movie'; lang?: string; year?: number; anime?: boolean; hinted: boolean }
 
 // "og telugu mmovie 2025" -> text "og", lang te, type movie, year 2025. Hints are optional: the raw query is still searched too.
 export function parseQuery(query: string): ParsedQuery {
   const raw = query.trim();
   const tokens = raw.split(/\s+/).filter(Boolean);
   const keep: string[] = [];
-  let type: ParsedQuery['type']; let lang: string | undefined; let year: number | undefined;
+  let type: ParsedQuery['type']; let lang: string | undefined; let year: number | undefined; let anime = false;
   const maxYear = new Date().getFullYear() + 2;
   for (const t of tokens) {
     const w = t.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
     if (/^\d{4}$/.test(w) && tokens.length > 1 && Number(w) >= 1900 && Number(w) <= maxYear) { year = Number(w); continue; }
     const l = hint(w, LANGS); if (l) { lang = l; continue; }
     const k = hint(w, TYPE_WORDS); if (k) { type = k; continue; }
-    if (w === 'anime') continue;
+    if (w === 'anime') { anime = true; continue; }
     keep.push(t);
   }
   const text = keep.join(' ').trim();
   if (text.length < 2) return { text: raw, hinted: false };
-  return { text, type, lang, year, hinted: text.toLowerCase() !== raw.toLowerCase() };
+  return { text, type, lang, year, ...(anime ? { anime } : {}), hinted: text.toLowerCase() !== raw.toLowerCase() };
 }
 
-// Exact title first, then titles starting with the query, then the rest. Inside a group: preferred language, then most popular.
-export function rankByQuery(items: Media[], query: string, opts: { alt?: string; lang?: string } = {}): Media[] {
-  const qs = [query, opts.alt].filter((x): x is string => !!x).map((x) => x.trim().toLowerCase());
+// Exact title first, then titles starting with (or containing the word), then the rest. Inside a group: most popular, with a boost for the language asked for.
+export function rankByQuery(items: Media[], query: string, opts: { alt?: string; lang?: string; anime?: boolean } = {}): Media[] {
+  // Fold repeated letters so spelling variants line up (bahubali / baahubali, tensura / tensuraa).
+  const fold = (x: string) => x.trim().toLowerCase().replace(/(\p{L})\1+/gu, '$1');
+  const qs = [query, opts.alt].filter((x): x is string => !!x).map(fold);
   const tier = (m: Media) => {
-    const names = [m.title, ...m.altTitles].map((t) => t.toLowerCase());
-    return Math.min(...qs.map((q) => (names.includes(q) ? 0 : names.some((t) => t.startsWith(q)) ? 1 : 2)));
+    const names = [m.title, ...m.altTitles].map(fold);
+    const hasWord = (t: string, q: string) => new RegExp(`(^|[^\\p{L}\\p{N}])${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'u').test(t);
+    return Math.min(...qs.map((q) => (names.includes(q) ? 0 : names.some((t) => t.startsWith(q) || hasWord(t, q)) ? 1 : 2)));
   };
-  const lang = (m: Media) => (opts.lang && m.originalLanguage === opts.lang ? 0 : 1);
-  return items.map((m, i) => ({ m, i })).sort((a, b) => tier(a.m) - tier(b.m) || lang(a.m) - lang(b.m) || (b.m.popularity ?? 0) - (a.m.popularity ?? 0) || a.i - b.i).map((x) => x.m);
+  // "anime" in the query: Japanese animation first, whatever else matches.
+  const anime = (m: Media) => (opts.anime && m.animation && m.originalLanguage === 'ja' ? 0 : 1);
+  // A language word is a soft preference, not a filter: dubbed films (Baahubali in Hindi) are listed once under their original language.
+  const score = (m: Media) => (m.popularity ?? 0) * (opts.lang && m.originalLanguage === opts.lang ? 3 : 1);
+  return items.map((m, i) => ({ m, i })).sort((a, b) => anime(a.m) - anime(b.m) || tier(a.m) - tier(b.m) || score(b.m) - score(a.m) || a.i - b.i).map((x) => x.m);
 }
 
 export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): MediaResolver {
@@ -145,10 +153,9 @@ export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): Me
       if (!ok.length) throw (settled[0] as PromiseRejectedResult).reason;
       const hinted = settled.slice(0, hintedJobs.length).flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
       const raw = settled.slice(hintedJobs.length).flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
-      const langHits = p.lang ? hinted.filter((m) => m.originalLanguage === p.lang) : hinted;
       const seen = new Set<string>();
-      const all = [...(langHits.length ? langHits : hinted), ...raw].filter((m) => !seen.has(m.id) && !!seen.add(m.id));
-      return rankByQuery(all, query, { alt: p.hinted ? p.text : undefined, lang: p.lang }).slice(0, 15);
+      const all = [...hinted, ...raw].filter((m) => !seen.has(m.id) && !!seen.add(m.id));
+      return rankByQuery(all, query, { alt: p.hinted ? p.text : undefined, lang: p.lang, anime: p.anime }).slice(0, 15);
     },
   };
 }
