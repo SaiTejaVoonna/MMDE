@@ -91,12 +91,12 @@ export function aniListResolver(fetchImpl: typeof fetch = fetch): MediaResolver 
   return {
     name: 'anilist',
     async search(query: string): Promise<Media[]> {
-      const request = async (q: string): Promise<AniMedia[]> => {
+      const request = async (q: string, perPage = 8): Promise<AniMedia[]> => {
         await wait();
         const res = await fetchImpl('https://graphql.anilist.co', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ query: QUERY, variables: { q } }),
+          body: JSON.stringify({ query: perPage === 8 ? QUERY : QUERY.replace('Page(perPage: 8)', `Page(perPage: ${perPage})`), variables: { q } }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status} from AniList`);
         const data = (await res.json()) as { data?: { Page?: { media?: AniMedia[] } } };
@@ -109,7 +109,7 @@ export function aniListResolver(fetchImpl: typeof fetch = fetch): MediaResolver 
       const related = franchiseRelations(initial[0]!);
       // A second exact-title pass catches franchise entries that AniList does not
       // expose as direct relations from the first season (a real-world data quirk).
-      const exact = initial[0]!.title.romaji ? await request(initial[0]!.title.romaji) : [];
+      const exact = initial[0]!.title.romaji ? await request(initial[0]!.title.romaji, 20) : [];
       const seen = new Set(related.map((m) => m.id));
       for (const node of exact) {
         if (node.id === initial[0]!.id) continue;
