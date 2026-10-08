@@ -1,7 +1,7 @@
 // MMDE domain model. Proposal only: see docs/DATA_MODEL.md.
 // Media -> MediaPart -> MediaTrack -> Recording.
 
-export type MediaType = 'anime' | 'movie' | 'tv' | 'game' | 'other';
+export type MediaType = 'anime' | 'movie' | 'tv' | 'collection' | 'game' | 'other';
 export type PartKind = 'season' | 'movie' | 'special' | 'ova' | 'whole';
 export type TrackRole = 'opening' | 'ending' | 'insert' | 'character' | 'ost' | 'score' | 'promo' | 'other';
 export type VersionKind = 'original' | 'tv_size' | 'full' | 'live' | 'remix' | 'cover' | 'instrumental' | 'rerecording' | 'unknown';

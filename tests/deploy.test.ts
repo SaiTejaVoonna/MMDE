@@ -263,3 +263,17 @@ test('guard: any script imported by a test must only run when invoked directly (
     }
   }
 });
+
+test('/api/details validates the id, needs a token, and never leaks it', async () => {
+  const s = await boot({ details: async (id) => ({ id, kind: 'movie', title: 'X', genres: [], spokenLanguages: [] }) });
+  try {
+    const ok = await get(`${s.base}/api/details/tmdb-movie-11`);
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).title, 'X');
+    for (const bad of ['tmdb-person-1', 'tmdb-movie-abc', 'tmdb-tv-1/../../x', 'anilist-5']) assert.equal((await get(`${s.base}/api/details/${encodeURIComponent(bad)}`)).status, 400, bad);
+  } finally { await s.close(); }
+  const none = await boot({ tmdbToken: undefined });
+  try { assert.equal((await get(`${none.base}/api/details/tmdb-movie-11`)).status, 503); } finally { await none.close(); }
+  const down = await boot({ details: async () => { throw new Error(`boom ${SECRET}`.replace(SECRET, 'x')); } });
+  try { assert.equal((await get(`${down.base}/api/details/tmdb-tv-1`)).status, 502); } finally { await down.close(); }
+});

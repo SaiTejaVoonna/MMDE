@@ -9,7 +9,7 @@ import type { MediaResolver } from '../providers/types.ts';
 import { newSteps, runDiscovery, type Deps, type Step } from './runner.ts';
 import type { Store } from './store.ts';
 import { organize } from '../app/organize.ts';
-import { tmdbSeasons, type TmdbSeason } from '../providers/tmdb.ts';
+import { tmdbSeasons, tmdbDetails, type TmdbSeason, type TmdbDetails } from '../providers/tmdb.ts';
 import { decideCors } from './cors.ts';
 import { clientKey, createRateLimiter, type Limit } from './rateLimit.ts';
 
@@ -26,10 +26,13 @@ export interface AppDeps extends Deps {
   rateLimit?: { general: Limit; discover: Limit };
   /** Injectable for tests; defaults to the real TMDB season lookup. */
   seasons?: (media: Media, token: string) => Promise<TmdbSeason[]>;
+  /** Injectable for tests; defaults to the real TMDB details lookup (movie, tv or collection). */
+  details?: (id: string, token: string) => Promise<TmdbDetails>;
 }
 
 const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 120 }, discover: { windowMs: 60_000, max: 12 } };
 const TMDB_TV_ID = /^tmdb-tv-\d{1,10}$/;
+const TMDB_ID = /^tmdb-(tv|movie|collection)-\d{1,10}$/;
 
 interface Job { id: string; mediaId: string; state: 'running' | 'done' | 'error'; steps: Step[]; error?: string }
 
@@ -67,6 +70,7 @@ export function createApp(deps: AppDeps): Server {
   const generalLimiter = createRateLimiter(limits.general);
   const discoverLimiter = createRateLimiter(limits.discover);
   const getSeasons = deps.seasons ?? tmdbSeasons;
+  const getDetails = deps.details ?? ((id: string, token: string) => tmdbDetails(id, token));
 
   /**
    * Query resolvers in parallel (results keep resolver order). Optional `sources` (resolver names) narrows the
@@ -141,6 +145,13 @@ export function createApp(deps: AppDeps): Server {
         const media = { id, type: 'tv', title: '', altTitles: [], externalIds: { tmdb: id.replace(/^tmdb-tv-/, ''), tmdbType: 'tv' } } as Media;
         try { return send(res, 200, { seasons: await getSeasons(media, deps.tmdbToken) }); }
         catch (e) { return send(res, 502, { error: `season lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
+      if (req.method === 'GET' && path.startsWith('/api/details/')) {
+        if (!deps.tmdbToken) return send(res, 503, { error: 'TMDB is not configured on this server' });
+        const id = decodeURIComponent(path.slice('/api/details/'.length));
+        if (!TMDB_ID.test(id)) return send(res, 400, { error: 'invalid id (expected tmdb-tv-, tmdb-movie- or tmdb-collection- plus a number)' });
+        try { return send(res, 200, await getDetails(id, deps.tmdbToken)); }
+        catch (e) { return send(res, 502, { error: `details lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/media') return send(res, 200, { items: await deps.store.list() });
       if (req.method === 'GET' && path.startsWith('/api/media/')) {

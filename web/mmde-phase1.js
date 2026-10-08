@@ -36,35 +36,61 @@
     const data = await call('/api/search?q=' + encodeURIComponent(q) + '&sources=tmdb,local-seeds');
     return { items: data.results || [], tmdbDown: (data.errors || []).some((e) => /^tmdb/i.test(String(e))) };
   };
-  const showSeasons = async (media) => {
-    app.replaceChildren(
-      el('a', { href: '#/', onclick: e => { e.preventDefault(); renderSearch(); } }, '← Back to search'),
-      el('div', { class: 'card' }, el('h2', {}, media.title), el('div', { class: 'meta' }, el('span', { class: 'tag' }, media.type), media.year ? el('span', { class: 'tag' }, media.year) : null)),
-      el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, media.type === 'tv' ? 'Loading seasons...' : (media.type === 'movie' ? 'Movie selected' : 'Sample entry selected')))
-    );
-    if (media.type !== 'tv') {
-      const isMovie = media.type === 'movie';
-      app.append(el('div', { class: 'card' },
-        el('h3', {}, isMovie ? 'Movie' : 'No season data'),
-        el('p', { class: 'note' }, isMovie ? 'Movies do not have seasons.' : 'This is a built-in sample entry. Go back and search again: when TMDB answers, the real TV result with seasons appears.')));
+  const IMG = 'https://image.tmdb.org/t/p/';
+  const poster = (path, size, cls) => path
+    ? el('img', { class: cls || 'poster', src: IMG + size + path, alt: '', loading: 'lazy' })
+    : el('div', { class: (cls || 'poster') + ' noposter' }, '?');
+  const mins = (n) => (n ? Math.floor(n / 60) + 'h ' + (n % 60) + 'm' : '');
+  const chips = (list) => el('div', { class: 'meta' }, list.filter(Boolean).map((t) => el('span', { class: 'tag' }, t)));
+  const filmGrid = (parts, currentId) => el('div', { class: 'postergrid' }, parts.map((p, i) =>
+    el('button', { type: 'button', class: 'pcard' + (p.id === currentId ? ' current' : ''), onclick: () => showDetails({ id: p.id, type: 'movie', title: p.title }) },
+      poster(p.posterPath, 'w342'),
+      el('strong', {}, (i + 1) + '. ' + p.title),
+      el('small', {}, (p.year || 'TBA') + (p.id === currentId ? ' · you are here' : ''))
+    )));
+  const musicCard = () => el('div', { class: 'card' }, el('h3', {}, 'Music'), el('p', { class: 'note' }, 'Soundtrack and song discovery for this title is the next step. Nothing is hosted or streamed here: it will link out to Spotify, Apple Music and YouTube.'));
+  const showDetails = async (media) => {
+    window.scrollTo(0, 0);
+    const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); renderSearch(); } }, '← Back to search');
+    if (!/^tmdb-(tv|movie|collection)-\d+$/.test(media.id)) {
+      app.replaceChildren(back,
+        el('div', { class: 'card' }, el('h2', {}, media.title), chips([media.type, media.year])),
+        el('div', { class: 'card' }, el('h3', {}, 'No details for this entry'), el('p', { class: 'note' }, 'This is a built-in sample entry. Go back and search again: when TMDB answers, the real result with posters, seasons and franchise films appears.')));
       return;
     }
-    try {
-      const data = await call('/api/seasons/' + encodeURIComponent(media.id));
-      const seasons = data.seasons || [];
-      const loadingEl = app.querySelector('.search-loading'); if (loadingEl) loadingEl.remove();
-      app.append(el('div', { class: 'card' },
-        el('h3', {}, 'Seasons'),
-        el('div', { class: 'chips' }, seasons.map(s => el('button', { class: 'chip', type: 'button' },
-          el('strong', {}, s.name || ('Season ' + s.seasonNumber)),
-          ' ',
-          el('span', {}, ' · ' + (s.episodeCount || 0) + ' episodes' + (s.airDate ? ' · ' + s.airDate.slice(0,4) : ''))
-        )))
-      ));
-    } catch (e) {
-      const loadingEl = app.querySelector('.search-loading'); if (loadingEl) loadingEl.remove();
-      app.append(el('div', { class: 'card warn' }, 'Could not load seasons: ' + e.message));
+    app.replaceChildren(back, el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Loading details...')));
+    let d;
+    try { d = await call('/api/details/' + encodeURIComponent(media.id)); }
+    catch (e) { app.replaceChildren(back, el('div', { class: 'card warn' }, 'Could not load details: ' + e.message + ' (press Back and try again)')); return; }
+    const hero = el('section', { class: 'dhero', style: d.backdropPath ? 'background-image:linear-gradient(90deg,rgba(8,11,20,.97) 25%,rgba(8,11,20,.72)),url(' + IMG + 'w780' + d.backdropPath + ')' : '' },
+      poster(d.posterPath, 'w342', 'dposter'),
+      el('div', { class: 'dtext' },
+        el('h2', {}, d.title),
+        d.tagline ? el('p', { class: 'tagline' }, d.tagline) : null,
+        chips([d.kind === 'collection' ? 'collection' : d.kind, d.year, mins(d.runtimeMin), d.voteAverage ? '★ ' + d.voteAverage : null, langName(d.originalLanguage), d.kind === 'collection' ? (d.parts || []).length + ' films' : null].concat(d.genres || [])),
+        d.spokenLanguages && d.spokenLanguages.length ? el('p', { class: 'note' }, 'Spoken languages: ' + d.spokenLanguages.join(', ')) : null,
+        d.overview ? el('p', { class: 'overview' }, d.overview) : null));
+    const parts = [back, hero];
+    if (d.kind === 'collection') {
+      parts.push(el('div', { class: 'card' }, el('h3', {}, 'Films in release order'), el('p', { class: 'note' }, 'TMDB gives release order. Story (chronological) order is not in TMDB.'), filmGrid(d.parts || [], null)));
     }
+    if (d.kind === 'movie' && d.collection) {
+      parts.push(el('div', { class: 'card' },
+        el('h3', {}, 'Part of ' + d.collection.name),
+        el('p', { class: 'note' }, 'Release order'),
+        filmGrid(d.parts || [], d.id),
+        el('button', { type: 'button', class: 'chip', onclick: () => showDetails({ id: d.collection.id, type: 'collection', title: d.collection.name }) }, 'Open the whole ' + d.collection.name)));
+    }
+    if (d.kind === 'tv') {
+      const seasons = d.seasons || [];
+      parts.push(el('div', { class: 'card' }, el('h3', {}, 'Seasons'),
+        el('div', { class: 'postergrid' }, seasons.map((s) => el('div', { class: 'pcard' },
+          poster(s.posterPath, 'w342'),
+          el('strong', {}, s.name || ('Season ' + s.seasonNumber)),
+          el('small', {}, (s.episodeCount || 0) + ' episodes' + (s.airDate ? ' · ' + s.airDate.slice(0, 4) : '') + (s.voteAverage ? ' · ★ ' + s.voteAverage : '')))))));
+    }
+    parts.push(musicCard());
+    app.replaceChildren(...parts);
   };
   const renderSearch = () => {
     const input = el('input', { class: 'search', type: 'search', placeholder: 'Search a movie, anime or TV show...', autocomplete: 'off', 'aria-label': 'Search media' });
@@ -90,7 +116,7 @@
         const warn = 'TMDB could not be reached just now (network). Showing limited results - press Enter to search again.';
         if (!items.length) { status.textContent = tmdbDown ? warn : 'No matches found.'; return; }
         if (tmdbDown) { status.textContent = warn; results.append(el('div', { class: 'note', style: 'padding:8px 14px' }, warn)); }
-        results.append(...items.map(m => el('button', { type: 'button', style: 'display:flex;gap:12px;align-items:center', onclick: () => showSeasons(m) },
+        results.append(...items.map(m => el('button', { type: 'button', style: 'display:flex;gap:12px;align-items:center', onclick: () => showDetails(m) },
           m.posterPath ? el('img', { src: 'https://image.tmdb.org/t/p/w92' + m.posterPath, alt: '', width: 40, height: 60, loading: 'lazy', style: 'border-radius:6px;flex:0 0 auto;object-fit:cover' }) : null,
           el('span', {}, m.title, el('small', {}, m.type + (m.year ? ' · ' + m.year : '') + (langName(m.originalLanguage) ? ' · ' + langName(m.originalLanguage) : '')))
         )));

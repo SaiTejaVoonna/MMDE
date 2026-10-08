@@ -107,3 +107,36 @@ test('"bahubali hindi" keeps the original (Telugu) film instead of dropping it',
   const out = await tmdbResolver('t', f).search('bahubali hindi');
   assert.deepEqual(out.map((x) => x.title).slice(0, 2), ['Baahubali: The Beginning', 'Bahubali Parody']);
 });
+
+import { tmdbDetails } from '../src/providers/tmdb.ts';
+
+const router = (routes: Record<string, unknown>) => (async (u: string) => {
+  const path = new URL(String(u)).pathname.replace('/3/', '');
+  return path in routes ? new Response(JSON.stringify(routes[path]), { status: 200 }) : new Response('{}', { status: 404 });
+}) as unknown as typeof fetch;
+
+test('movie details include its franchise films in release order, with posters', async () => {
+  const f = router({
+    'movie/11': { title: 'Star Wars', release_date: '1977-05-25', runtime: 121, genres: [{ name: 'Adventure' }], original_language: 'en', spoken_languages: [{ english_name: 'English' }], poster_path: '/a.jpg', belongs_to_collection: { id: 10, name: 'Star Wars Collection', poster_path: '/c.jpg' } },
+    'collection/10': { parts: [{ id: 140607, title: 'The Force Awakens', release_date: '2015-12-15' }, { id: 11, title: 'Star Wars', release_date: '1977-05-25' }, { id: 1893, title: 'The Phantom Menace', release_date: '1999-05-19' }] },
+  });
+  const d = await tmdbDetails('tmdb-movie-11', 't', f);
+  assert.equal(d.kind, 'movie'); assert.equal(d.year, 1977); assert.equal(d.runtimeMin, 121);
+  assert.deepEqual(d.spokenLanguages, ['English']);
+  assert.equal(d.collection?.id, 'tmdb-collection-10');
+  assert.deepEqual(d.parts?.map((p) => p.title), ['Star Wars', 'The Phantom Menace', 'The Force Awakens']);
+  assert.equal(d.parts?.[0]?.id, 'tmdb-movie-11');
+});
+
+test('collection details list films by release date; a missing franchise list does not break a movie', async () => {
+  const c = await tmdbDetails('tmdb-collection-10', 't', router({ 'collection/10': { name: 'Star Wars Collection', poster_path: '/c.jpg', parts: [{ id: 2, title: 'B', release_date: '2000-01-01' }, { id: 1, title: 'A', release_date: '1990-01-01' }, { id: 3, title: 'No date' }] } }));
+  assert.deepEqual(c.parts?.map((p) => p.title), ['A', 'B', 'No date']);
+  const m = await tmdbDetails('tmdb-movie-5', 't', router({ 'movie/5': { title: 'X', belongs_to_collection: { id: 9, name: 'Y' } } }));
+  assert.equal(m.title, 'X'); assert.equal(m.collection?.name, 'Y'); assert.equal(m.parts, undefined);
+});
+
+test('tv details carry season posters and overviews; bad ids are rejected', async () => {
+  const t = await tmdbDetails('tmdb-tv-37430', 't', router({ 'tv/37430': { name: 'Slime', first_air_date: '2018-10-02', seasons: [{ season_number: 0, name: 'Specials', episode_count: 16 }, { season_number: 1, name: 'Season 1', episode_count: 24, poster_path: '/s1.jpg', overview: 'Satoru...', vote_average: 8.2 }] } }));
+  assert.equal(t.seasons?.length, 2); assert.equal(t.seasons?.[1]?.posterPath, '/s1.jpg');
+  await assert.rejects(tmdbDetails('tmdb-tv-../x', 't', router({})), /invalid id/);
+});

@@ -7,6 +7,8 @@ export interface TmdbSeason {
   airDate?: string;
   episodeCount: number;
   posterPath?: string;
+  overview?: string;
+  voteAverage?: number;
 }
 
 interface TmdbResult {
@@ -126,6 +128,21 @@ export function rankByQuery(items: Media[], query: string, opts: { alt?: string;
   return items.map((m, i) => ({ m, i })).sort((a, b) => anime(a.m) - anime(b.m) || tier(a.m) - tier(b.m) || score(b.m) - score(a.m) || a.i - b.i).map((x) => x.m);
 }
 
+function mapCollection(c: { id: number; name?: string; poster_path?: string | null; overview?: string }): Media {
+  const title = c.name ?? String(c.id);
+  return {
+    id: `tmdb-collection-${c.id}`,
+    type: 'collection',
+    title,
+    altTitles: [],
+    externalIds: { tmdb: String(c.id), tmdbType: 'collection' },
+    ...(c.poster_path ? { posterPath: c.poster_path } : {}),
+    ...(c.overview ? { overview: c.overview.slice(0, 220) } : {}),
+    // search/collection returns no popularity; give franchises a middling one so they sit near their own films.
+    popularity: 40,
+  };
+}
+
 export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): MediaResolver {
   const fetchKind = async (kind: 'tv' | 'movie', text: string, page: number, year?: number): Promise<Media[]> => {
     const yearParam = year ? `&${kind === 'tv' ? 'first_air_date_year' : 'year'}=${year}` : '';
@@ -135,12 +152,18 @@ export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): Me
     const data = (await res.json()) as { results?: TmdbResult[] };
     return (data.results ?? []).map((m) => mapResult(m, kind));
   };
+  const fetchCollections = async (text: string): Promise<Media[]> => {
+    const res = await fetchRetry(fetchImpl, `https://api.themoviedb.org/3/search/collection?query=${encodeURIComponent(text)}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status} from TMDB collection search`);
+    const data = (await res.json()) as { results?: Array<{ id: number; name?: string; poster_path?: string | null; overview?: string }> };
+    return (data.results ?? []).slice(0, 3).map(mapCollection);
+  };
   return {
     name: 'tmdb',
     async search(query: string): Promise<Media[]> {
       const p = parseQuery(query);
       const jobs: Array<Promise<Media[]>> = [];
-      const rawJobs = [fetchKind('tv', query.trim(), 1), fetchKind('movie', query.trim(), 1)];
+      const rawJobs = [fetchKind('tv', query.trim(), 1), fetchKind('movie', query.trim(), 1), fetchCollections(p.hinted ? p.text : query.trim())];
       const hintedJobs: Array<Promise<Media[]>> = [];
       if (p.hinted) {
         for (const kind of p.type ? [p.type] : (['tv', 'movie'] as const)) {
@@ -170,7 +193,7 @@ export async function tmdbSeasons(
   if (!id) return [];
   const res = await fetchRetry(fetchImpl, `https://api.themoviedb.org/3/tv/${encodeURIComponent(id)}?language=en-US`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error(`HTTP ${res.status} from TMDB TV details`);
-  const data = (await res.json()) as { seasons?: Array<{ season_number: number; name: string; air_date?: string | null; episode_count: number; poster_path?: string | null }> };
+  const data = (await res.json()) as { seasons?: Array<{ season_number: number; name: string; air_date?: string | null; episode_count: number; poster_path?: string | null; overview?: string; vote_average?: number }> };
   return (data.seasons ?? [])
     .filter((s) => s.season_number >= 0)
     .map((s) => ({
@@ -179,5 +202,85 @@ export async function tmdbSeasons(
       airDate: s.air_date ?? undefined,
       episodeCount: s.episode_count,
       posterPath: s.poster_path ?? undefined,
+      overview: s.overview || undefined,
+      voteAverage: s.vote_average || undefined,
     }));
+}
+
+export interface TmdbPart { id: string; kind: 'movie'; title: string; year?: number; releaseDate?: string; posterPath?: string; overview?: string }
+export interface TmdbDetails {
+  id: string;
+  kind: 'movie' | 'tv' | 'collection';
+  title: string;
+  tagline?: string;
+  overview?: string;
+  year?: number;
+  posterPath?: string;
+  backdropPath?: string;
+  runtimeMin?: number;
+  genres: string[];
+  originalLanguage?: string;
+  spokenLanguages: string[];
+  voteAverage?: number;
+  /** A movie that belongs to a franchise points at it; the franchise lists its films in release order. */
+  collection?: { id: string; name: string; posterPath?: string };
+  parts?: TmdbPart[];
+  seasons?: TmdbSeason[];
+}
+
+type RawPart = { id: number; title?: string; release_date?: string; poster_path?: string | null; overview?: string };
+const mapPart = (m: RawPart): TmdbPart => ({
+  id: `tmdb-movie-${m.id}`, kind: 'movie', title: m.title ?? String(m.id),
+  ...(m.release_date ? { releaseDate: m.release_date, year: Number(m.release_date.slice(0, 4)) } : {}),
+  ...(m.poster_path ? { posterPath: m.poster_path } : {}),
+  ...(m.overview ? { overview: m.overview.slice(0, 220) } : {}),
+});
+// TMDB's own order is not reliable; release date is (missing dates last).
+const byRelease = (a: TmdbPart, b: TmdbPart) => (a.releaseDate ?? '9999').localeCompare(b.releaseDate ?? '9999');
+
+export async function tmdbDetails(id: string, token: string, fetchImpl: typeof fetch = fetch): Promise<TmdbDetails> {
+  const m = /^tmdb-(tv|movie|collection)-(\d{1,10})$/.exec(id);
+  if (!m) throw new Error('invalid id');
+  const kind = m[1] as TmdbDetails['kind'];
+  const num = m[2]!;
+  const get = async (path: string) => {
+    const res = await fetchRetry(fetchImpl, `https://api.themoviedb.org/3/${path}language=en-US`, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status} from TMDB ${kind} details`);
+    return (await res.json()) as Record<string, any>;
+  };
+  if (kind === 'collection') {
+    const c = await get(`collection/${num}?`);
+    const parts = ((c.parts ?? []) as RawPart[]).map(mapPart).sort(byRelease);
+    return {
+      id, kind, title: c.name ?? id, overview: c.overview || undefined, posterPath: c.poster_path || undefined, backdropPath: c.backdrop_path || undefined,
+      year: parts[0]?.year, genres: [], spokenLanguages: [], parts,
+    };
+  }
+  const d = await get(`${kind}/${num}?`);
+  const out: TmdbDetails = {
+    id, kind, title: (kind === 'tv' ? d.name : d.title) ?? id,
+    tagline: d.tagline || undefined, overview: d.overview || undefined,
+    year: Number(String((kind === 'tv' ? d.first_air_date : d.release_date) ?? '').slice(0, 4)) || undefined,
+    posterPath: d.poster_path || undefined, backdropPath: d.backdrop_path || undefined,
+    runtimeMin: (kind === 'movie' ? d.runtime : d.episode_run_time?.[0]) || undefined,
+    genres: ((d.genres ?? []) as Array<{ name: string }>).map((g) => g.name),
+    originalLanguage: d.original_language || undefined,
+    spokenLanguages: ((d.spoken_languages ?? []) as Array<{ english_name?: string; name?: string }>).map((l) => l.english_name || l.name || '').filter(Boolean),
+    voteAverage: d.vote_average ? Math.round(d.vote_average * 10) / 10 : undefined,
+  };
+  if (kind === 'tv') {
+    out.seasons = ((d.seasons ?? []) as Array<any>).filter((s) => s.season_number >= 0).map((s) => ({
+      seasonNumber: s.season_number, name: s.name, airDate: s.air_date ?? undefined, episodeCount: s.episode_count,
+      posterPath: s.poster_path ?? undefined, overview: s.overview || undefined, voteAverage: s.vote_average || undefined,
+    }));
+  }
+  if (kind === 'movie' && d.belongs_to_collection?.id) {
+    const cid = d.belongs_to_collection.id;
+    out.collection = { id: `tmdb-collection-${cid}`, name: d.belongs_to_collection.name ?? 'Collection', posterPath: d.belongs_to_collection.poster_path || undefined };
+    try {
+      const c = await get(`collection/${cid}?`);
+      out.parts = ((c.parts ?? []) as RawPart[]).map(mapPart).sort(byRelease);
+    } catch { /* the movie page still works without its franchise list */ }
+  }
+  return out;
 }
