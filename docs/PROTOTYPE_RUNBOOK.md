@@ -5,6 +5,9 @@ Personal, non-commercial prototype on branch `prototype/m1-slime`. Proposal only
 ## Live site (GitHub Pages)
 https://saitejavoonna.github.io/MMDE/ is the browser-only build, published from the `gh-pages` branch (a snapshot of `web/` from `prototype/m1-slime`; republish after app changes). Verified 2026-10-08 that the HTML and `mmde.js` are served. Live-provider behaviour (AniList, MusicBrainz, Wikipedia, Anthropic CORS) is still untested on the real site.
 
+## Copy diagnostics (for sharing results)
+Every result page has a **Copy diagnostics** button. It copies plain text with: mode and settings (never the API key), the last search and its errors, each provider's reported errors, every track's status/confidence/MusicBrainz id/ISRC/evidence, link resolution and releases. The same text is shown on the page if automatic copy fails. Paste it into the chat for review.
+
 ## Easiest: browser only (no server, no install)
 1. Download the ZIP: https://github.com/SaiTejaVoonna/MMDE/archive/refs/heads/prototype/m1-slime.zip and unzip it.
 2. Double-click `web/index.html`. That is the whole app (one bundled script, `web/mmde.js`).

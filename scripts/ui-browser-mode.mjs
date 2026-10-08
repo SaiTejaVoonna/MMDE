@@ -17,6 +17,7 @@ const json = (route, body) => route.fulfill({ status: 200, contentType: 'applica
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1100, height: 900 } });
+await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
@@ -75,6 +76,15 @@ check('5 platform search links on the row', (await page.locator('.track').first(
 check('each external API was actually called', calls.anilist > 0 && calls.mb > 0 && calls.wiki > 0 && calls.anthropic > 0);
 await page.screenshot({ path: join(out, 'browser-mode-result.png'), fullPage: true });
 
+// Copy diagnostics (healthy run)
+await page.click('#copy-diag');
+const diag1 = await page.evaluate(() => navigator.clipboard.readText());
+check('Copy diagnostics puts text on the clipboard', diag1.startsWith('MMDE DIAGNOSTICS'));
+check('diagnostics: media, last search, provider list', diag1.includes('MEDIA: Jujutsu Kaisen') && diag1.includes('LAST SEARCH: "jujutsu"') && diag1.includes('- musicbrainz: no error reported') && diag1.includes('- wikipedia+llm: no error reported'));
+check('diagnostics: track status + MusicBrainz id/ISRC + evidence', diag1.includes('[suggested]') && diag1.includes('"Kaikai Kitan"') && diag1.includes('mbid=mbid-kaikai') && diag1.includes('evidence: wikipedia+llm https://en.wikipedia.org/'));
+check('diagnostics never contain the API key', !diag1.includes('sk-test-fake') && diag1.includes('AI extractor key set: yes'));
+check('diagnostics text is also shown on the page (manual-copy fallback)', (await page.locator('pre.diag').textContent()).startsWith('MMDE DIAGNOSTICS'));
+
 // persistence: reload keeps the stored result without re-fetching
 const before = { ...calls };
 await page.reload();
@@ -88,6 +98,9 @@ await page.route('https://musicbrainz.org/**', (r) => r.fulfill({ status: 503, b
 await page.click('button:text-is("Re-discover")');
 await page.waitForSelector('.part', { timeout: 15000 });
 check('MusicBrainz 503 shows a provider note, results still render', (await page.textContent('main')).includes('Provider notes') && (await page.textContent('main')).includes('Kaikai Kitan'));
+await page.click('#copy-diag');
+const diag2 = await page.evaluate(() => navigator.clipboard.readText());
+check('diagnostics report the MusicBrainz failure', diag2.includes('- musicbrainz: ERRORS: musicbrainz: HTTP 503'));
 
 // live off => no network provider calls for the sample
 await page.evaluate(() => { localStorage.setItem('mmde.settings.v1', JSON.stringify({ live: false, anthropicKey: '' })); localStorage.removeItem('mmde.results.v1'); });

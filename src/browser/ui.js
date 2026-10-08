@@ -1,7 +1,10 @@
 // MMDE prototype UI. No dependencies. All dynamic text goes through textContent (no innerHTML).
 // It talks to an `api` object (server or direct-in-browser), see src/browser/*Api.ts.
+import { buildDiagnostics } from './diagnostics.ts';
+
 let $app;
 let api;
+let lastSearch = null;
 const mediaCache = new Map(); // id -> media object from search, needed to start a discovery
 
 const el = (tag, attrs = {}, ...kids) => {
@@ -30,6 +33,7 @@ function landing() {
     try {
       const r = await api.search(q);
       if (mine !== seq) return;
+      lastSearch = { query: q, sources: r.sources, errors: r.errors, count: r.results.length };
       suggest.replaceChildren(...r.results.map((m) => {
         mediaCache.set(m.id, m);
         return el('button', { type: 'button', onclick: () => { location.hash = `#/media/${encodeURIComponent(m.id)}`; } },
@@ -89,6 +93,23 @@ function trackRow(t) {
   return el('div', { class: 'track' }, row, detail);
 }
 
+function diagButton(r) {
+  const st = api.settings ? api.settings.get() : null;
+  const text = () => buildDiagnostics(r, {
+    modeLabel: api.modeLabel, live: st ? !!st.live : undefined, hasApiKey: st ? !!st.anthropicKey : undefined,
+    url: location.href, userAgent: navigator.userAgent, now: new Date().toISOString(), lastSearch: lastSearch || undefined,
+  });
+  const msg = el('span', { class: 'note' });
+  const box = el('pre', { class: 'diag', hidden: true });
+  const btn = el('button', { class: 'btn ghost', type: 'button', id: 'copy-diag', onclick: async () => {
+    const t = text();
+    box.textContent = t; box.hidden = false;
+    try { await navigator.clipboard.writeText(t); msg.textContent = 'Copied. Paste it into the chat.'; }
+    catch { msg.textContent = 'Could not copy automatically. Select the text below and copy it.'; }
+  } }, 'Copy diagnostics');
+  return el('span', {}, btn, ' ', msg, box);
+}
+
 function resultView(r, filter, rerender, onRefresh) {
   const counts = { confirmed: 0, suggested: 0, unverified: 0 };
   r.tracks.forEach((t) => counts[t.status]++);
@@ -111,7 +132,7 @@ function resultView(r, filter, rerender, onRefresh) {
   return el('div', {},
     header(r.media),
     el('div', { class: 'card' }, el('div', { class: 'meta' }, `${r.tracks.length} tracks · `, el('span', { class: 'st confirmed' }, `${counts.confirmed} confirmed`), el('span', { class: 'st suggested' }, `${counts.suggested} suggested`), el('span', { class: 'st unverified' }, `${counts.unverified} unverified`),
-      el('span', {}, `sources: ${r.sources.join(', ')}`), el('button', { class: 'btn ghost', type: 'button', onclick: onRefresh }, 'Re-discover')),
+      el('span', {}, `sources: ${r.sources.join(', ')}`), el('button', { class: 'btn ghost', type: 'button', onclick: onRefresh }, 'Re-discover'), diagButton(r)),
       el('div', { class: 'chips' }, ROLE_FILTERS.map((f) => el('button', { class: `chip ${f === filter ? 'on' : ''}`, type: 'button', onclick: () => rerender(f) }, f)))),
     parts, releases, filter === 'All' || filter === 'OST' ? noOst : null,
     r.errors.length ? el('div', { class: 'card warn' }, 'Provider notes: ', r.errors.join(' | ')) : null);
