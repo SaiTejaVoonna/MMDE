@@ -51,14 +51,17 @@
     try {
       const data = await call('/api/seasons/' + encodeURIComponent(media.id));
       const seasons = data.seasons || [];
+      const loadingEl = app.querySelector('.search-loading'); if (loadingEl) loadingEl.remove();
       app.append(el('div', { class: 'card' },
         el('h3', {}, 'Seasons'),
         el('div', { class: 'chips' }, seasons.map(s => el('button', { class: 'chip', type: 'button' },
           el('strong', {}, s.name || ('Season ' + s.seasonNumber)),
-          el('span', {}, (s.episodeCount || 0) + ' episodes' + (s.airDate ? ' · ' + s.airDate.slice(0,4) : ''))
+          ' ',
+          el('span', {}, ' · ' + (s.episodeCount || 0) + ' episodes' + (s.airDate ? ' · ' + s.airDate.slice(0,4) : ''))
         )))
       ));
     } catch (e) {
+      const loadingEl = app.querySelector('.search-loading'); if (loadingEl) loadingEl.remove();
       app.append(el('div', { class: 'card warn' }, 'Could not load seasons: ' + e.message));
     }
   };
