@@ -377,6 +377,78 @@
     };
   }
 
+  // src/providers/jikan.ts
+  function partKind(type) {
+    if (type === "Movie") return { kind: "movie" };
+    if (type === "OVA") return { kind: "ova" };
+    if (type === "Special" || type === "ONA") return { kind: "special" };
+    return { kind: "whole" };
+  }
+  function jikanResolver(fetchImpl = fetch) {
+    const wait = createRateLimiter(900);
+    return {
+      name: "jikan",
+      async search(query) {
+        const q = query.trim();
+        if (!q) return [];
+        await wait();
+        const url = new URL("https://api.jikan.moe/v4/anime");
+        url.searchParams.set("q", q);
+        url.searchParams.set("limit", "12");
+        url.searchParams.set("sfw", "true");
+        const res = await fetchImpl(url, { headers: { Accept: "application/json" } });
+        if (!res.ok) throw new Error(`HTTP ${res.status} from Jikan`);
+        const data = await res.json();
+        return (data.data ?? []).map((m) => ({
+          id: `mal-${m.mal_id}`,
+          type: "anime",
+          title: m.title_english || m.title || m.title_japanese || String(m.mal_id),
+          altTitles: [m.title, m.title_english ?? void 0, m.title_japanese ?? void 0, ...m.title_synonyms ?? []].filter((x) => !!x),
+          year: m.year ?? (m.aired?.from ? Number(m.aired.from.slice(0, 4)) : void 0),
+          externalIds: { mal: String(m.mal_id), ...m.url ? { malUrl: m.url } : {} },
+          partRef: partKind(m.type)
+        }));
+      }
+    };
+  }
+
+  // src/providers/wikipedia.ts
+  function mediaType(title, snippet) {
+    const text = `${title} ${snippet}`.toLowerCase();
+    if (/(anime|manga)/.test(text)) return "anime";
+    if (/(tv series|television series|television show|tv show|series)/.test(text)) return "tv";
+    if (/(film|movie)/.test(text)) return "movie";
+    return "other";
+  }
+  function wikipediaResolver(fetchImpl = fetch) {
+    const wait = createRateLimiter(500);
+    return {
+      name: "wikipedia",
+      async search(query) {
+        const q = query.trim();
+        if (!q) return [];
+        await wait();
+        const url = new URL("https://en.wikipedia.org/w/api.php");
+        url.searchParams.set("action", "query");
+        url.searchParams.set("list", "search");
+        url.searchParams.set("srsearch", q);
+        url.searchParams.set("srlimit", "8");
+        url.searchParams.set("format", "json");
+        url.searchParams.set("origin", "*");
+        const res = await fetchImpl(url, { headers: { Accept: "application/json" } });
+        if (!res.ok) throw new Error(`HTTP ${res.status} from Wikipedia`);
+        const data = await res.json();
+        return (data.query?.search ?? []).map((row) => ({
+          id: `wikipedia-${row.pageid}`,
+          type: mediaType(row.title, row.snippet),
+          title: row.title,
+          altTitles: [],
+          externalIds: { wikipedia: String(row.pageid) }
+        }));
+      }
+    };
+  }
+
   // src/providers/animethemes.ts
   function role(type) {
     if (type === "OP") return "opening";
@@ -894,7 +966,7 @@ ${text}`;
       async search(q) {
         const st = readSettings();
         const resolvers = [seedMediaResolver(opts.seeds)];
-        if (st.live) resolvers.push(aniListResolver(f));
+        if (st.live) resolvers.push(aniListResolver(f), jikanResolver(f), wikipediaResolver(f));
         const results = [];
         const errors = [];
         for (const r of resolvers) {
