@@ -45,7 +45,14 @@ export function createBrowserApi(opts: { seeds: SeedFile[]; fetchImpl?: typeof f
         try { results.push(...await r.search(q)); }
         catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
       }
-      return { results: mergeMediaResults(results), errors, sources: resolvers.map((r) => r.name) };
+            let merged = mergeMediaResults(results);
+      const canonical = merged[0];
+      const anilist = resolvers.find((r) => r.name === 'anilist');
+      if (canonical && anilist) {
+        try { merged = mergeMediaResults([...merged, ...(await anilist.search(canonical.title))]); }
+        catch (e) { errors.push(`anilist enrichment: ${e instanceof Error ? e.message : String(e)}`); }
+      }
+      return { results: merged, errors, sources: resolvers.map((r) => r.name) };
     },
     async getResult(id) {
       const r = memory.get(id) ?? readResults()[id];
