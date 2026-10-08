@@ -241,11 +241,12 @@ export function createApp(deps: AppDeps): Server {
         const seasonRaw = url.searchParams.get('season'); const airRaw = url.searchParams.get('seasonYear');
         const season = seasonRaw && /^\d{1,2}$/.test(seasonRaw) && Number(seasonRaw) >= 1 ? { number: Number(seasonRaw), airYear: airRaw && /^\d{4}$/.test(airRaw) ? Number(airRaw) : undefined } : undefined;
         const anime = url.searchParams.get('anime') === '1';
-        const key = `${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}|${season ? season.number + '@' + (season.airYear ?? '') : ''}|${anime ? 'anime' : ''}`;
-        const hit = mergedCache.get(key);
+        const fast = url.searchParams.get('fast') === '1'; const fresh = url.searchParams.get('fresh') === '1';
+        const key = `${fast ? 'fast|' : ''}${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}|${season ? season.number + '@' + (season.airYear ?? '') : ''}|${anime ? 'anime' : ''}`;
+        const hit = fresh ? undefined : mergedCache.get(key);
         if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value);
         try {
-          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes, musicBrainz: deps.musicBrainz, wikidata: deps.wikidata }, title, year, { composers, alts, season, anime });
+          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes, musicBrainz: deps.musicBrainz, wikidata: deps.wikidata }, title, year, { composers, alts, season, anime, fast });
           if (!value.partial) { mergedCache.set(key, { at: Date.now(), value }); if (mergedCache.size > 300) mergedCache.delete(mergedCache.keys().next().value as string); }
           return send(res, 200, value);
         } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }

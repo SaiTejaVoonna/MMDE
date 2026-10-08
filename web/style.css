@@ -190,3 +190,23 @@ button.tlitem:hover .tlgo{text-decoration:underline}
 .tproof::before { content: '✓ '; color: #3ecf8e; }
 .tsection[hidden] { display: none; }
 .plink.exact[data-p=youtubeMusic]{background:#ff9f6b;border-color:#ff9f6b}
+
+/* Phase 1: skeleton loading and source status */
+.skel-wrap{margin:8px 0}
+.skel-head{height:14px;width:55%;border-radius:8px;margin:10px 0 14px}
+.skel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.skel-card{border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(21,29,45,.6)}
+.skel-art{aspect-ratio:1;border-radius:10px;margin-bottom:10px}
+.skel-line{height:11px;border-radius:6px;margin:8px 0}.skel-line.short{width:60%}
+.skel-head,.skel-art,.skel-line{background:linear-gradient(90deg,#182036 25%,#223050 50%,#182036 75%);background-size:200% 100%;animation:skel 1.3s ease-in-out infinite}
+@keyframes skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.srcstrip{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:4px 0 10px}
+.srcchip{font-size:12px;border:1px solid var(--line);border-radius:99px;padding:3px 10px;color:var(--mute);background:rgba(255,255,255,.03)}
+.srcchip b{font-weight:700;margin-right:2px}
+.s-ok{color:#8be7c0;border-color:#1f5a46}.s-failed{color:#ffb4b4;border-color:#6b2c2c}.s-pending{color:#f1d28a;border-color:#5a4a1f}.s-empty{color:#aab3c5}
+.srcretry{margin-left:6px;border:0;background:none;color:var(--accent);cursor:pointer;font-size:12px;text-decoration:underline}
+.srcdetail{flex-basis:100%;color:var(--mute);font-size:12px}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid #5a4a1f;border-top-color:#f1d28a;border-radius:50%;margin-right:8px;vertical-align:-1px;animation:rot .9s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.pending-note{color:#f1d28a}
+@media (prefers-reduced-motion:reduce){.skel-head,.skel-art,.skel-line,.spin,.loading-fill{animation:none}}

@@ -5,7 +5,7 @@ import type { CatalogAlbum, CatalogPlatform, CatalogTrack } from '../providers/c
 import { artistMatches, extraAlbumNames, nameMatchesDistinctiveTitle } from '../providers/catalogAlbums.ts';
 import { trackKey } from './soundtrackMerge.ts';
 import { classifyForSeason } from './seasonScope.ts';
-import { mergeSoundtrack, type AlbumWithTracks, type MergedSoundtrack } from './soundtrackMerge.ts';
+import { mergeSoundtrack, type AlbumWithTracks, type MergedSoundtrack, type SourceStatus } from './soundtrackMerge.ts';
 
 export interface SoundtrackSources {
   wiki: (title: string, year?: number, alts?: string[]) => Promise<Soundtrack | null>;
@@ -52,14 +52,14 @@ export function belongsToTitle(album: CatalogAlbum, tracks: CatalogTrack[], comp
   return { ok: false, reason: `artist "${album.artist || 'unknown'}" is not the film's composer (${composers.join(', ')}) and no songs match` };
 }
 
-export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[]; anime?: boolean; season?: { number: number; airYear?: number } } = {}): Promise<MergedSoundtrack> {
+export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[]; anime?: boolean; fast?: boolean; season?: { number: number; airYear?: number } } = {}): Promise<MergedSoundtrack> {
   const composers = ctx.composers ?? [];
   // Other-language names from Wikidata join the TMDB ones (one extra slot: catalogs are searched with the first 3, and each search costs a rate-limited call).
   let wd: string[] = [];
-  if (src.wikidata) { try { wd = await withTimeout(src.wikidata(title, year), 8000); } catch { /* optional source */ } }
+  if (src.wikidata && !ctx.fast) { try { wd = await withTimeout(src.wikidata(title, year), 8000); } catch { /* optional source */ } }
   const base = ctx.alts ?? [];
   const alts = [...new Set([...base.slice(0, 2), ...wd.filter((x) => !base.includes(x)).slice(0, 1), ...base.slice(2), ...wd.slice(1)])].slice(0, 8);
-  const [w, a, at, mb] = await Promise.allSettled([src.wiki(title, year, alts), src.albums(title, year, undefined, alts), ctx.anime && src.animeThemes ? src.animeThemes(title, alts, year) : Promise.resolve([] as AnimeThemesEntry[]), src.musicBrainz ? src.musicBrainz(title, alts, composers) : Promise.resolve([] as MbRelease[])]);
+  const [w, a, at, mb] = await Promise.allSettled([src.wiki(title, year, alts), src.albums(title, year, undefined, alts), ctx.anime && !ctx.fast && src.animeThemes ? src.animeThemes(title, alts, year) : Promise.resolve([] as AnimeThemesEntry[]), src.musicBrainz && !ctx.fast ? src.musicBrainz(title, alts, composers) : Promise.resolve([] as MbRelease[])]);
   if (w.status === 'rejected' && a.status === 'rejected' && !(at.status === 'fulfilled' && at.value.length) && !(mb.status === 'fulfilled' && mb.value.length)) throw w.reason;
   let partial = w.status === 'rejected' || a.status === 'rejected';
   const wiki = w.status === 'fulfilled' ? w.value : null;
@@ -89,5 +89,14 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
   const mbReleases = mb.status === 'fulfilled' ? mb.value : [];
   if (mb.status === 'rejected') partial = true;
   if (mbReleases.some((r) => nameMatchesDistinctiveTitle(r.title, [title, ...alts]))) titleVerified = true;
-  return mergeSoundtrack(wiki, fetched, { partial, composers, skipped, titleVerified, animeThemes, mbReleases, titles: [title, ...alts], season: ctx.season ? { ...ctx.season, excluded: preExcluded } : undefined });
+  const merged = mergeSoundtrack(wiki, fetched, { partial, composers, skipped, titleVerified, animeThemes, mbReleases, titles: [title, ...alts], season: ctx.season ? { ...ctx.season, excluded: preExcluded } : undefined });
+  const state = (r: PromiseSettledResult<unknown>, n: number, skippedFast = false): SourceStatus['state'] => (skippedFast ? 'pending' : r.status === 'rejected' ? 'failed' : n > 0 ? 'ok' : 'empty');
+  const sources: SourceStatus[] = [
+    { key: 'wikipedia', label: 'Wikipedia', state: state(w, wiki ? 1 : 0), detail: wiki ? wiki.page.title : w.status === 'rejected' ? 'could not be reached' : 'no tracklist page found' },
+    { key: 'catalog', label: 'Apple Music + Deezer', state: state(a, all.length), detail: a.status === 'rejected' ? 'could not be reached' : `${all.length} album${all.length === 1 ? '' : 's'}/playlist${skipped.length ? `, ${skipped.length} skipped (not this title)` : ''}` },
+    { key: 'musicbrainz', label: 'MusicBrainz', state: state(mb, mbReleases.length, !!ctx.fast), detail: ctx.fast ? 'checking…' : mb.status === 'rejected' ? 'could not be reached' : mbReleases.length ? `${mbReleases.length} release${mbReleases.length === 1 ? '' : 's'} (label, date, ISRC)` : 'no release for this title' },
+    ...(ctx.anime ? [{ key: 'animethemes' as const, label: 'AnimeThemes', state: state(at, animeThemes.length, !!ctx.fast), detail: ctx.fast ? 'checking…' : at.status === 'rejected' ? 'could not be reached' : animeThemes.length ? `${animeThemes.length} season entr${animeThemes.length === 1 ? 'y' : 'ies'}` : 'nothing found' }] : []),
+    ...(src.wikidata ? [{ key: 'wikidata' as const, label: 'Wikidata names', state: ctx.fast ? 'pending' as const : wd.length ? 'ok' as const : 'empty' as const, detail: ctx.fast ? 'checking…' : wd.length ? `${wd.length} other-language title${wd.length === 1 ? '' : 's'}` : 'none found' }] : []),
+  ];
+  return { ...merged, sources };
 }

@@ -181,17 +181,35 @@
     return Promise.all(Array.from({ length: concurrency }, worker));
   };
 
+  const skeleton = () => el('div', { class: 'skel-wrap', 'aria-label': 'Loading songs' }, el('div', { class: 'skel-head' }), el('div', { class: 'skel-grid' }, ...Array.from({ length: 8 }, () => el('div', { class: 'skel-card' }, el('div', { class: 'skel-art' }), el('div', { class: 'skel-line' }), el('div', { class: 'skel-line short' })))));
+  const SRC_ICON = { ok: '✓', empty: '○', failed: '✗', pending: '…' };
+  const sourceStrip = (sources, onRetry) => el('div', { class: 'srcstrip', role: 'status' },
+    el('span', { class: 'note' }, 'Checked: '),
+    ...(sources || []).map((x) => el('span', { class: 'srcchip s-' + x.state, title: x.label + ': ' + (x.detail || x.state) }, el('b', {}, SRC_ICON[x.state] || ''), ' ' + x.label,
+      x.state === 'failed' ? el('button', { type: 'button', class: 'srcretry', onclick: onRetry }, 'retry') : null)),
+    ...(sources || []).filter((x) => x.state !== 'ok' && x.state !== 'pending').slice(0, 3).map((x) => el('small', { class: 'srcdetail' }, x.label + ': ' + (x.detail || x.state))));
+
   const soundtrackCard = (d, scope) => {
     const body = el('div', {});
     const card = el('div', { class: 'card' }, el('h3', {}, scope ? 'Music for ' + (scope.name || 'Season ' + scope.number) : 'Soundtrack'), body);
     const token = viewToken;
-    body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Collecting from Wikipedia, Apple Music and Deezer... (the first time can take up to a minute for big films)')));
+    body.append(skeleton());
     const film = { id: d.id, title: d.title, kind: d.kind, year: d.year, posterPath: d.posterPath };
     const yt = el('a', { href: safeUrl(searchLink('youtube', d.title + ' ' + (d.year || '') + ' soundtrack')), target: '_blank', rel: 'noopener noreferrer' }, 'Search YouTube for the ' + d.title + ' soundtrack');
     const extra = (d.composers && d.composers.length ? '&composer=' + encodeURIComponent(d.composers.join('|')) : '') + (d.altTitles && d.altTitles.length ? '&alt=' + encodeURIComponent(d.altTitles.join('|')) : '') + ((d.genres || []).includes('Animation') && d.originalLanguage === 'ja' ? '&anime=1' : '') + (scope ? '&season=' + scope.number + (scope.airYear ? '&seasonYear=' + scope.airYear : '') : '');
-    call('/api/soundtrack-merged?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '') + extra).then((m) => {
+    const url = '/api/soundtrack-merged?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '') + extra;
+    let rendered = false; let fullDone = false;
+
+    const render = (m, isFast) => {
       if (token !== viewToken) return;
-      if (!m.sections || !m.sections.length) { body.replaceChildren(el('p', { class: 'note' }, 'No soundtrack list was found on Wikipedia, Apple Music or Deezer for this title yet. '), yt); return; }
+      const openNames = new Set([...body.querySelectorAll('details.tsection[open]')].map((x) => x.dataset.name));
+      const reload = () => start(true);
+      const strip = sourceStrip(m.sources, reload);
+      if (!m.sections || !m.sections.length) {
+        if (isFast) { rendered = true; body.replaceChildren(strip, el('p', { class: 'note' }, 'Nothing yet from Wikipedia, Apple Music or Deezer. Still checking MusicBrainz and AnimeThemes…'), skeleton()); return; }
+        body.replaceChildren(strip, el('p', { class: 'note' }, 'No soundtrack list was found for this title yet. The line above says what each source answered. '), el('button', { type: 'button', class: 'chip', onclick: reload }, 'Check again'), ' ', yt); return;
+      }
+      rendered = true;
       const toResolve = [];
       const buildSection = (sec, idx) => {
         const rows = sec.tracks.map((t) => {
@@ -204,11 +222,12 @@
         });
         const big = rows.length > 12;
         const det = el('details', { class: 'tsection' + (sec.origin === 'community' ? ' tcommunity' : '') }, ...[
-          el('summary', {}, sec.name + (sec.language ? ' · ' + sec.language : '') + ' · ' + rows.length + (rows.length === 1 ? ' track' : ' tracks')),
+          el('summary', {}, sec.name + (sec.language && !sec.name.includes(sec.language) ? ' · ' + sec.language : '') + ' · ' + rows.length + (rows.length === 1 ? ' track' : ' tracks')),
           big ? el('button', { type: 'button', class: 'chip findbtn', onclick: (e) => { const todo = rows.filter((r) => r.missing); e.target.disabled = true; e.target.textContent = 'Finding exact links for ' + todo.length + ' songs... (a few minutes)'; resolveQueue(todo, token, 2).then(() => { e.target.textContent = 'Done: exact links shown where found'; }); } }, 'Find missing Apple Music / Deezer links (takes a while)') : null,
           el('div', { class: 'tbody' }, ...rows.map((r) => r.el))].filter(Boolean));
+        det.dataset.name = sec.name;
         if (sec.language) det.dataset.lang = sec.language;
-        if (idx < 2 && sec.origin !== 'community') det.open = true;
+        if (openNames.size ? openNames.has(sec.name) : (idx < 2 && sec.origin !== 'community')) det.open = true;
         if (!big) toResolve.push(...rows.filter((r) => r.missing));
         return det;
       };
@@ -222,6 +241,8 @@
         const chip = e.currentTarget; wrap.className = 'tfilter-' + key + ' ' + (wrap.classList.contains('tview-list') ? 'tview-list' : 'tview-cards'); chip.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === chip));
       } }, dot ? el('span', { class: 'cdot cdot-' + dot }) : null, label);
       wrap.append(
+        strip,
+        ...(isFast ? [el('p', { class: 'note pending-note' }, el('span', { class: 'spin' }), 'Showing what we have so far. MusicBrainz, AnimeThemes and other-language names are still being checked, so more songs and proof lines may appear.')] : []),
         el('p', { class: 'note' }, c.total + ' songs found' + (m.wikipedia ? ' · tracklist from ' : ''), m.wikipedia ? el('a', { href: safeUrl(m.wikipedia.url), target: '_blank', rel: 'noopener noreferrer' }, 'Wikipedia') : null, m.wikipedia ? ' (CC BY-SA 4.0)' : '', '. MMDE never plays or hosts audio.'),
         el('div', { class: 'chips fchips' },
           filterChip('all', 'All ' + c.total),
@@ -239,11 +260,24 @@
         ...(otherNodes.length ? [el('details', { class: 'tsection tother' }, el('summary', {}, 'Other music from the whole series, not tied to a season · ' + (otherSecs.reduce((n, x) => n + x.tracks.length, 0) === 1 ? '1 song' : otherSecs.reduce((n, x) => n + x.tracks.length, 0) + ' songs')), el('div', {}, ...otherNodes))] : []),
         ...(m.verified === 'none' ? [el('p', { class: 'note' }, 'We could not verify that these albums belong to this title: no composer credit on TMDB and no Wikipedia tracklist. They were matched by name only, so songs are marked unverified (red) unless two catalogs agree.')] : []),
         ...((m.skipped || []).length ? [el('p', { class: 'note' }, 'Skipped ' + m.skipped.length + (m.skipped.length === 1 ? ' album' : ' albums') + ' with the same name that did not match this title\'s composer: ' + m.skipped.map((x) => x.name).join('; ') + '.')] : []),
-        ...(m.partial ? [el('p', { class: 'note' }, 'Some albums were too slow to load, so this list may be incomplete. Reload to try again.')] : []),
+        ...(m.partial && !isFast ? [el('p', { class: 'note' }, 'Some sources were too slow or unreachable, so this list may be incomplete. ', el('button', { type: 'button', class: 'chip', onclick: reload }, 'Check again'))] : []),
         el('p', { class: 'note' }, 'Looking somewhere else? ', yt));
       body.replaceChildren(wrap);
       resolveQueue(toResolve, token, 2);
-    }).catch((e) => { if (token === viewToken) body.replaceChildren(el('p', { class: 'note' }, 'Could not load the soundtrack: ' + e.message + ' '), yt); });
+    };
+
+    // Two stages: the fast one (Wikipedia + Apple Music + Deezer) shows songs quickly; the full one adds MusicBrainz, AnimeThemes and
+    // other-language names and replaces it. If the full answer arrives first, the late fast answer is ignored.
+    const start = (fresh) => {
+      fullDone = false; rendered = false;
+      body.replaceChildren(skeleton());
+      call(url + '&fast=1' + (fresh ? '&fresh=1' : '')).then((m) => { if (!fullDone) render(m, true); }).catch(() => { /* the full request reports errors */ });
+      call(url + (fresh ? '&fresh=1' : '')).then((m) => { fullDone = true; render(m, false); }).catch((e) => {
+        fullDone = true;
+        if (token === viewToken && !rendered) body.replaceChildren(el('p', { class: 'note' }, 'Could not load the soundtrack: ' + e.message + ' '), el('button', { type: 'button', class: 'chip', onclick: () => start(true) }, 'Try again'), ' ', yt);
+      });
+    };
+    start(false);
     return card;
   };
 
