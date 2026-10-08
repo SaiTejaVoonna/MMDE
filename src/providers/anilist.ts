@@ -139,7 +139,7 @@ export function aniListResolver(fetchImpl: typeof fetch = fetch): MediaResolver 
       if (initial[0]!.title.romaji && inferPart(initial[0]!.title) .kind === 'whole') {
         const base = initial[0]!.title.romaji;
         const variantQueries = [
-          ...Array.from({ length: 7 }, (_, i) => `${base} ${i + 2}nd Season`),
+          ...Array.from({ length: 7 }, (_, i) => { const n = i + 2; const suffix = n % 10 === 1 && n % 100 !== 11 ? 'st' : n % 10 === 2 && n % 100 !== 12 ? 'nd' : n % 10 === 3 && n % 100 !== 13 ? 'rd' : 'th'; return `${base} ${n}${suffix} Season`; }),
           `${base} Movie`,
         ];
         for (const q of variantQueries) {
