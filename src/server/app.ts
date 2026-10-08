@@ -47,6 +47,8 @@ export interface AppDeps extends Deps {
   /** Anime opening/ending songs per season (AnimeThemes). Optional. */
   animeThemes?: (title: string, alts: string[], firstYear?: number) => Promise<AnimeThemesEntry[]>;
   musicBrainz?: (title: string, alts: string[], composers: string[]) => Promise<MbRelease[]>;
+  wikidata?: (title: string, year?: number) => Promise<string[]>;
+  deezerIsrc?: (id: string) => Promise<string | null>;
 }
 
 const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 300 }, discover: { windowMs: 60_000, max: 12 } };
@@ -240,10 +242,17 @@ export function createApp(deps: AppDeps): Server {
         const hit = mergedCache.get(key);
         if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value);
         try {
-          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes, musicBrainz: deps.musicBrainz }, title, year, { composers, alts, season, anime });
+          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes, musicBrainz: deps.musicBrainz, wikidata: deps.wikidata }, title, year, { composers, alts, season, anime });
           if (!value.partial) { mergedCache.set(key, { at: Date.now(), value }); if (mergedCache.size > 300) mergedCache.delete(mergedCache.keys().next().value as string); }
           return send(res, 200, value);
         } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
+      if (req.method === 'GET' && path === '/api/deezer-isrc') {
+        if (!deps.deezerIsrc) return send(res, 503, { error: 'ISRC lookup is not available on this server' });
+        const id = url.searchParams.get('id') ?? '';
+        if (!/^\d{1,15}$/.test(id)) return send(res, 400, { error: 'id must be a Deezer track number' });
+        try { return send(res, 200, { isrc: await deps.deezerIsrc(id) }); }
+        catch (e) { return send(res, 502, { error: `ISRC lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/media') return send(res, 200, { items: await deps.store.list() });
       if (req.method === 'GET' && path.startsWith('/api/media/')) {

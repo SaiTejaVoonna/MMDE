@@ -6,7 +6,7 @@ import { createRateLimiter } from './types.ts';
 
 export type CatalogPlatform = 'apple' | 'deezer' | 'deezer-playlist';
 export interface CatalogAlbum { platform: CatalogPlatform; id: string; name: string; artist: string; art?: string; url: string; trackCount?: number; kind: 'album' | 'playlist'; /** ISO date when the catalog states one (Apple does). */ releaseDate?: string; /** Found because Wikipedia's tracklist names this album (not because its name contains the film title). */ viaWiki?: boolean }
-export interface CatalogTrack { no: number; title: string; artists: string[]; lengthSec?: number; url: string; id: string; art?: string }
+export interface CatalogTrack { no: number; title: string; artists: string[]; lengthSec?: number; url: string; id: string; art?: string; /** Name of the album the song is on (playlist rows only), so a community playlist can be checked against official albums. */ album?: string }
 
 /** Lowercase, accents removed, punctuation -> space, repeated letters collapsed ("Bāhubali" ~ "Baahubali"). */
 export const looseFold = (x: string) =>
@@ -111,7 +111,7 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
       ]);
       // Catalogs often use the original-language or romanized title ("Tensei shitara Slime Datta Ken"): search those too.
       const altApple: any[] = []; const altDeezer: any[] = [];
-      for (const alt of alts.slice(0, 2)) {
+      for (const alt of alts.slice(0, 3)) {
         const [aa, ad] = await Promise.allSettled([
           apple(`https://itunes.apple.com/search?${new URLSearchParams({ term: `${alt} soundtrack`, entity: 'album', limit: '25' })}`),
           deezer(`https://api.deezer.com/search/album?${new URLSearchParams({ q: alt, limit: '25' })}`),
@@ -190,6 +190,7 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
       return (d.data ?? []).filter((r: any) => r.link).map((r: any, i: number): CatalogTrack => ({
         no: i + 1, title: String(r.title), artists: [String(r.artist?.name ?? '')].filter(Boolean), lengthSec: r.duration || undefined, url: String(r.link), id: String(r.id),
         art: (r.album?.cover_medium && String(r.album.cover_medium)) || undefined,
+        album: platform === 'deezer-playlist' && r.album?.title ? String(r.album.title) : undefined,
       }));
     });
   }
