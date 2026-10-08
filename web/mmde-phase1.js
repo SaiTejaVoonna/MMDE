@@ -106,6 +106,7 @@
   };
 
   // One song row: platform buttons (exact = verified catalog match, dashed = search only) and a favorite heart.
+  const CONF_WORD = { green: 'Confirmed', amber: 'One source', red: 'Unverified' };
   const CONF_TEXT = { green: 'Confirmed: listed by 2 or more independent sources', amber: 'One source: listed by one reputable source', red: 'Unverified: only found in community playlists' };
   const SRC_NAME = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', credits: 'artist matches composer', animethemes: 'AnimeThemes', musicbrainz: 'MusicBrainz', community: 'community playlist' };
   const trackRow = (film, section, t, initial, meta) => {
@@ -117,6 +118,29 @@
     if (meta) row.dataset.conf = meta.confidence;
     const heart = el('button', { type: 'button', class: 'heart', 'aria-label': 'Favorite' });
     const paintHeart = () => { const on = !!fav(); heart.textContent = on ? '♥' : '♡'; heart.classList.toggle('on', on); heart.title = on ? 'Remove from favorites' : 'Add to favorites (also follows the title)'; };
+    let open = false;
+    const detailPanel = () => el('div', { class: 'tdetail' },
+      meta.proof ? el('small', { class: 'tproof', title: 'From MusicBrainz, a public release database: the codes the music industry uses to identify a release. MMDE reads the data, never the audio.' }, 'Official release' + [meta.proof.label, meta.proof.releaseDate, meta.proof.isrc || meta.deezerIsrc ? 'ISRC ' + (meta.proof.isrc || meta.deezerIsrc) + (meta.deezerIsrc && meta.proof.isrc && meta.deezerIsrc === meta.proof.isrc ? ' (MusicBrainz and Deezer agree)' : meta.deezerIsrc && !meta.proof.isrc ? ' (Deezer)' : '') : '', meta.proof.upc ? 'UPC ' + meta.proof.upc : ''].filter(Boolean).map((x) => ' · ' + x).join('')) : null,
+      !meta.proof && meta.deezerIsrc ? el('small', { class: 'tproof', title: 'ISRC read from the public Deezer catalog. It identifies this exact recording across services.' }, 'Recording code · ISRC ' + meta.deezerIsrc + ' (Deezer)') : null,
+      meta.versions && meta.versions.length ? el('small', { class: 'tproof', title: 'Matched by track number and length, not by title: probably the same song in another language release' }, 'Probably also in ' + meta.versions.map((v) => v.language + ' ("' + v.title + '")').join(', ')) : null,
+      el('small', { class: 'tsrc' }, 'Found in: ' + [...new Set(meta.evidence.map((e) => SRC_NAME[e.source] || e.source))].join(' + '),
+        ...meta.evidence.filter((e) => e.source === 'animethemes' && e.url).slice(0, 1).map((e) => el('a', { class: 'vlink', href: safeUrl(e.url), target: '_blank', rel: 'noopener noreferrer', title: 'Watch this opening/ending on AnimeThemes (opens their site)' }, ' ▶ video'))),
+      ...meta.evidence.slice(0, 6).map((e) => el('small', { class: 'tev' }, '· ' + e.label)));
+    const pillFor = (p, name, primary) => {
+      const exact = links[p].kind === 'resolved';
+      const a = el('a', {
+        class: 'plink ' + (exact ? 'exact' : 'guess') + (primary ? ' primary' : ''), 'data-p': p, href: safeUrl(links[p].url), target: '_blank', rel: 'noopener noreferrer', 'aria-label': name + (exact ? ' (direct link)' : ' (search)'),
+        title: exact ? 'Open on ' + name + ' (verified match)' : 'Search ' + name + ' (not a verified match)'
+      }, el('span', { class: 'plabel' }, primary ? (exact ? 'Open in ' : 'Search ') + name : name));
+      a.prepend(icon(p));
+      return a;
+    };
+    const pills = () => {
+      const pref = lib.prefs && lib.prefs.app;
+      const main = PLATFORMS.find(([p]) => p === pref);
+      if (!main) return el('span', { class: 'tpills' }, PLATFORMS.map(([p, name]) => pillFor(p, name, false)));
+      return el('span', { class: 'tpills has-main' }, pillFor(main[0], main[1], true), el('span', { class: 'tpills more' }, PLATFORMS.filter(([p]) => p !== main[0]).map(([p, name]) => pillFor(p, name, false))));
+    };
     const draw = () => {
       row.replaceChildren(
         el('span', { class: 'tno' }, t.no || ''),
@@ -124,19 +148,10 @@
         el('span', { class: 'tinfo' },
           el('strong', {}, meta ? el('span', { class: 'cdot cdot-' + meta.confidence, title: CONF_TEXT[meta.confidence] + '\n' + meta.evidence.map((e) => e.label).join('\n') }) : null, t.title),
           el('small', {}, [(t.artists || []).join(', '), fmtLen(t.lengthSec)].filter(Boolean).join(' · ')),
-          meta && !meta.proof && meta.deezerIsrc ? el('small', { class: 'tproof', title: 'ISRC read from Deezer\'s public catalog. It identifies this exact recording across services.' }, 'Recording code · ISRC ' + meta.deezerIsrc + ' (Deezer)') : null,
-          meta && meta.proof ? el('small', { class: 'tproof', title: 'From MusicBrainz, a public release database: the same codes the music industry uses to identify a release. MMDE reads the data, never the audio.' }, 'Official release' + [meta.proof.label, meta.proof.releaseDate, meta.proof.isrc || meta.deezerIsrc ? 'ISRC ' + (meta.proof.isrc || meta.deezerIsrc) + (meta.deezerIsrc && meta.proof.isrc && meta.deezerIsrc === meta.proof.isrc ? ' (MusicBrainz and Deezer agree)' : meta.deezerIsrc && !meta.proof.isrc ? ' (Deezer)' : '') : '', meta.proof.upc ? 'UPC ' + meta.proof.upc : ''].filter(Boolean).map((x) => ' · ' + x).join('')) : null,
-          meta && meta.versions && meta.versions.length ? el('small', { class: 'tproof', title: 'Matched by track number and length, not by title: probably the same song in another language release' }, 'Probably also in ' + meta.versions.map((v) => v.language + ' ("' + v.title + '")').join(', ')) : null,
-          meta ? el('small', { class: 'tsrc' }, [...new Set(meta.evidence.map((e) => SRC_NAME[e.source] || e.source))].join(' + '),
-            ...meta.evidence.filter((e) => e.source === 'animethemes' && e.url).slice(0, 1).map((e) => el('a', { class: 'vlink', href: safeUrl(e.url), target: '_blank', rel: 'noopener noreferrer', title: 'Watch this opening/ending on AnimeThemes (opens their site)' }, ' ▶ video'))) : null),
-        el('span', { class: 'tpills' }, PLATFORMS.map(([p, name]) => {
-          const a = el('a', {
-            class: 'plink ' + (links[p].kind === 'resolved' ? 'exact' : 'guess'), 'data-p': p, href: safeUrl(links[p].url), target: '_blank', rel: 'noopener noreferrer', 'aria-label': name + (links[p].kind === 'resolved' ? ' (direct link)' : ' (search)'),
-            title: links[p].kind === 'resolved' ? 'Open on ' + name + ' (verified match)' : 'Search ' + name + ' (not a verified match)'
-          }, el('span', { class: 'plabel' }, name));
-          a.prepend(icon(p));
-          return a;
-        })),
+          meta ? el('small', { class: 'tconf c-' + meta.confidence, title: CONF_TEXT[meta.confidence] }, CONF_WORD[meta.confidence] + (meta.proof && (meta.proof.isrc || meta.deezerIsrc) || meta.deezerIsrc ? ' · ISRC' : '')) : null,
+          meta ? el('button', { type: 'button', class: 'tmore', 'aria-expanded': String(open), onclick: () => { open = !open; draw(); } }, open ? 'Hide details' : 'Details') : null,
+          open && meta ? detailPanel() : null),
+        pills(),
         heart);
       paintHeart();
     };
@@ -167,6 +182,8 @@
     if (initial) { (initial.links ? Object.entries(initial.links).forEach(([p, l]) => { if (links[p] && l && /^https:\/\//.test(l.url)) links[p] = { url: l.url, kind: l.kind === 'resolved' ? 'resolved' : 'search' }; }) : 0); if (initial.art && /^https:\/\//.test(initial.art)) art = initial.art; }
     draw();
     if (meta && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); seen = true; loadIsrc(); } }); io.observe(row); }
+    const myToken = viewToken;
+    document.addEventListener('mmde-prefs', () => { if (myToken === viewToken) draw(); });
     const handle = { el: row, set, done: false, resolve: async () => {
       if (handle.done) return; handle.done = true;
       try { set(await call('/api/track-links?title=' + encodeURIComponent(t.title) + '&film=' + encodeURIComponent(film.title) + '&artist=' + encodeURIComponent((t.artists || []).slice(0, 3).join('|')) + (t.lengthSec ? '&length=' + t.lengthSec : '') + (film.year ? '&year=' + film.year : ''))); }
@@ -182,6 +199,24 @@
     let i = 0;
     const worker = async () => { while (i < rows.length && token === viewToken) { const r = rows[i++]; await r.resolve(); } };
     return Promise.all(Array.from({ length: concurrency }, worker));
+  };
+
+  // "How we know": the evidence behind the list in plain words (composer, what was checked, which official releases were found).
+  const VERIFIED_TEXT = {
+    composer: 'Albums were accepted only when their artist matches the composer from TMDB, or the album name is distinctive.',
+    wikipedia: 'No composer on TMDB, so albums were accepted when their songs match the Wikipedia tracklist.',
+    title: 'Albums were accepted because their names contain a distinctive form of this title.',
+    none: 'Not verified: no composer on TMDB and no Wikipedia tracklist, so albums were matched by name only.',
+  };
+  const knowPanel = (m, d, items) => {
+    const rels = new Map();
+    for (const it of items) if (it.t.proof && it.t.proof.release) rels.set(it.t.proof.releaseUrl || it.t.proof.release, it.t.proof);
+    const rows = [...rels.values()].slice(0, 8);
+    return el('details', { class: 'knowbox' }, el('summary', {}, 'How we know'),
+      el('p', { class: 'note' }, 'Composer (from TMDB): ' + (d.composers && d.composers.length ? d.composers.join(', ') : 'not listed')),
+      el('p', { class: 'note' }, VERIFIED_TEXT[m.verified] || ''),
+      el('p', { class: 'note' }, 'Confirmed means two or more independent sources list the song. MMDE reads catalog data (titles, labels, dates, codes) and never the audio.'),
+      rows.length ? el('div', {}, el('p', { class: 'note' }, 'Official releases found (MusicBrainz):'), el('ul', { class: 'knowlist' }, rows.map((r) => el('li', {}, el('a', { href: safeUrl(r.releaseUrl || ''), target: '_blank', rel: 'noopener noreferrer' }, r.release), [r.label, r.releaseDate, r.upc ? 'UPC ' + r.upc : ''].filter(Boolean).map((x) => ' · ' + x).join(''))))) : el('p', { class: 'note' }, 'No official release record was found on MusicBrainz for this title.'));
   };
 
   const skeleton = () => el('div', { class: 'skel-wrap', 'aria-label': 'Loading songs' }, el('div', { class: 'skel-head' }), el('div', { class: 'skel-grid' }, ...Array.from({ length: 8 }, () => el('div', { class: 'skel-card' }, el('div', { class: 'skel-art' }), el('div', { class: 'skel-line' }), el('div', { class: 'skel-line short' })))));
@@ -300,6 +335,7 @@
       const sources = [...new Set(items.flatMap((it) => it.t.evidence.map((e) => e.source)))].filter((x) => x !== 'credits');
       const SRC_LABEL = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', musicbrainz: 'MusicBrainz', animethemes: 'AnimeThemes', community: 'Community playlist' };
       const present = (k) => items.some((it) => (it.t.type || 'song') === k);
+      const appSel = select([['', 'My music app: show all'], ...PLATFORMS.map(([p, n]) => [p, 'My music app: ' + n])], () => prefs.app || '', (v) => { if (v) prefs.app = v; else delete prefs.app; saveLibQuiet(); document.dispatchEvent(new Event('mmde-prefs')); }, 'My music app');
       const qBox = el('input', { class: 'tq', type: 'search', placeholder: 'Search these songs…', 'aria-label': 'Search these songs', oninput: (e) => { st.q = e.target.value; layout(); } });
       const sortSel = select(Object.entries(SORTS).map(([k, v]) => [k, v.label]), () => st.sort, (v) => { st.sort = v; prefs.sort = v; saveLibQuiet(); if (v !== 'original' && st.group === 'section') { st.group = 'none'; groupSel.value = 'none'; } layout(); }, 'Sort songs');
       const groupSel = select(Object.entries(GROUPS).map(([k, v]) => [k, v.label]), () => st.group, (v) => { st.group = v; prefs.group = v; saveLibQuiet(); layout(); }, 'Group songs');
@@ -316,7 +352,8 @@
         strip,
         ...(isFast ? [el('p', { class: 'note pending-note' }, el('span', { class: 'spin' }), 'Showing what we have so far. MusicBrainz, AnimeThemes and other-language names are still being checked, so more songs and proof lines may appear.')] : []),
         el('p', { class: 'note' }, c.total + ' songs found' + (m.wikipedia ? ' · tracklist from ' : ''), m.wikipedia ? el('a', { href: safeUrl(m.wikipedia.url), target: '_blank', rel: 'noopener noreferrer' }, 'Wikipedia') : null, m.wikipedia ? ' (CC BY-SA 4.0)' : '', '. MMDE never plays or hosts audio.'),
-        el('div', { class: 'toolbar' }, qBox, sortSel, groupSel, typeSel, srcSel),
+        knowPanel(m, d, items),
+        el('div', { class: 'toolbar' }, qBox, sortSel, groupSel, typeSel, srcSel, appSel),
         el('div', { class: 'chips fchips' },
           confChip('all', 'All'), confChip('green', 'Confirmed', 'green'), confChip('amber', 'One source', 'amber'), confChip('red', 'Unverified', 'red'),
           ...toggles,
@@ -334,6 +371,10 @@
         ...((m.skipped || []).length ? [el('p', { class: 'note' }, 'Skipped ' + m.skipped.length + (m.skipped.length === 1 ? ' album' : ' albums') + ' with the same name that did not match this title\'s composer: ' + m.skipped.map((x) => x.name).join('; ') + '.')] : []),
         ...(m.partial && !isFast ? [el('p', { class: 'note' }, 'Some sources were too slow or unreachable, so this list may be incomplete. ', el('button', { type: 'button', class: 'chip', onclick: reload }, 'Check again'))] : []),
         el('p', { class: 'note' }, 'Looking somewhere else? ', yt));
+      // Controls live in one box: open on wide screens, folded on phones so the songs are not pushed off the screen.
+      const ctrl = el('details', { class: 'ctrlbox' }, el('summary', {}, 'Sort, filter and group'));
+      wrap.querySelectorAll(':scope > .toolbar, :scope > .fchips').forEach((n) => ctrl.append(n));
+      wrap.insertBefore(ctrl, countNote); ctrl.open = window.innerWidth > 640;
       body.replaceChildren(wrap);
       syncControls();
       layout();
@@ -411,7 +452,7 @@
         chips([(sn.episodeCount || 0) + ' episodes', sn.airDate ? 'aired ' + sn.airDate : null, sn.voteAverage ? '★ ' + sn.voteAverage : null]),
         sn.overview ? el('p', { class: 'overview' }, sn.overview) : null,
         followButton(d)));
-    const switcher = el('div', { class: 'chips fchips' }, (d.seasons || []).filter((x) => x.seasonNumber >= 1).map((x) =>
+    const switcher = el('div', { class: 'chips fchips seasonbar' }, (d.seasons || []).filter((x) => x.seasonNumber >= 1).map((x) =>
       el('button', { type: 'button', class: 'chip' + (x.seasonNumber === sn.seasonNumber ? ' active' : ''), onclick: () => showSeason(d, x) }, x.name || ('Season ' + x.seasonNumber))));
     app.replaceChildren(back, hero, switcher, soundtrackCard(d, scope));
   };
@@ -428,7 +469,7 @@
     let d;
     try { d = await call('/api/details/' + encodeURIComponent(media.id)); }
     catch (e) { app.replaceChildren(back, el('div', { class: 'card warn' }, 'Could not load details: ' + e.message + ' (press Back and try again)')); return; }
-    const hero = el('section', { class: 'dhero', style: d.backdropPath ? 'background-image:linear-gradient(90deg,rgba(8,11,20,.97) 25%,rgba(8,11,20,.72)),url(' + IMG + 'w780' + d.backdropPath + ')' : '' },
+    const hero = el('section', { class: 'dhero tint', style: d.backdropPath ? 'background-image:linear-gradient(90deg,rgba(8,11,20,.97) 25%,rgba(8,11,20,.72)),url(' + IMG + 'w780' + d.backdropPath + ')' : '' },
       poster(d.posterPath, 'w342', 'dposter'),
       el('div', { class: 'dtext' },
         el('h2', {}, d.title),
@@ -563,7 +604,7 @@
         sb.wrap,
         backend,
         el('div', { class: 'note try-label' }, 'Try searching'),
-        el('div', { class: 'chips' }, ['That Time I Got Reincarnated as a Slime', 'Star Wars', 'Bahubali', 'Jujutsu Kaisen', 'Attack on Titan'].map((t) => el('button', { class: 'chip', type: 'button', onclick: () => showResults(t, 'all') }, t))),
+        el('div', { class: 'chips' }, ['Bahubali', 'RRR', 'Fire Force', 'That Time I Got Reincarnated as a Slime', 'Jujutsu Kaisen', 'Star Wars'].map((t) => el('button', { class: 'chip', type: 'button', onclick: () => showResults(t, 'all') }, t))),
         el('div', { class: 'note mode-note' }, 'TMDB credentials stay on the MMDE server and are never stored in this page.')
       ),
       homeRow('Your list', Object.values(lib.follows).sort((a, b) => b.at - a.at).slice(0, 14).map((f) => ({ id: f.id, type: f.kind, title: f.title, year: f.year, posterPath: f.posterPath })), (m) => { backFn = () => renderSearch(''); showDetails(m); }, 'Nothing followed yet. Open any title and press "+ Follow".'),
