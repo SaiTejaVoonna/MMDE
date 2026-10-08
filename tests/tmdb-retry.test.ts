@@ -47,3 +47,39 @@ test('a movie and a series with the same title are not merged', () => {
   const out = mergeMediaResults([m('tv1', 'tv', 'Frozen'), m('mv1', 'movie', 'Frozen'), m('seed', 'anime', 'Frozen')]);
   assert.deepEqual(out.map((x) => x.id).sort(), ['mv1', 'tv1']);
 });
+
+import { parseQuery } from '../src/providers/tmdb.ts';
+
+test('parseQuery pulls out language, type and year hints, tolerating one typo', () => {
+  assert.deepEqual(parseQuery('og telugu mmovie'), { text: 'og', type: 'movie', lang: 'te', year: undefined, hinted: true });
+  assert.equal(parseQuery('they call him og').hinted, false);
+  assert.equal(parseQuery('Blade Runner 2049').hinted, false, '2049 is a title, not a year');
+  const y = parseQuery('kalki hindi film 2024');
+  assert.equal(y.text, 'kalki'); assert.equal(y.lang, 'hi'); assert.equal(y.year, 2024); assert.equal(y.type, 'movie');
+  assert.equal(parseQuery('movie').hinted, false, 'a query that is only hints is searched as typed');
+});
+
+test('"og telugu mmovie" finds the Telugu movie even though TMDB cannot match the raw text', async () => {
+  const urls: string[] = [];
+  const f = (async (u: string) => {
+    urls.push(String(u));
+    const q = new URL(String(u)).searchParams.get('query');
+    const isMovie = String(u).includes('/search/movie');
+    const results = q === 'og' && isMovie
+      ? [{ id: 1, title: 'Hindi OG Thing', original_language: 'hi', popularity: 90 }, { id: 2, title: 'They Call Him OG', original_language: 'te', popularity: 50, release_date: '2025-09-25' }]
+      : [];
+    return new Response(JSON.stringify({ results }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const out = await tmdbResolver('t', f).search('og telugu mmovie');
+  assert.equal(out[0]?.title, 'They Call Him OG');
+  assert.equal(out[0]?.originalLanguage, 'te');
+  assert.ok(urls.some((u) => u.includes('/search/movie') && u.includes('query=og&')), 'searched the cleaned text');
+  assert.ok(urls.some((u) => u.includes('query=og%20telugu%20mmovie')), 'also searched what was typed');
+});
+
+test('search still answers when only some TMDB requests fail', async () => {
+  let n = 0;
+  const f = (async () => { if (n++ % 2 === 0) throw new TypeError('fetch failed'); return new Response(JSON.stringify({ results: [{ id: 5, title: 'Naruto', original_language: 'ja' }] }), { status: 200 }); }) as unknown as typeof fetch;
+  const out = await tmdbResolver('t', f).search('naruto');
+  assert.ok(out.length >= 1);
+});

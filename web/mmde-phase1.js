@@ -31,6 +31,7 @@
     return data;
   };
   // Phase 1 is the fast path: ask only TMDB (+ local seeds). If the server has no TMDB credential it falls back to all sources.
+  const langName = (c) => { try { return c ? new Intl.DisplayNames(['en'], { type: 'language' }).of(c) : ''; } catch (e) { return ''; } };
   const search = async (q) => {
     const data = await call('/api/search?q=' + encodeURIComponent(q) + '&sources=tmdb,local-seeds');
     return { items: data.results || [], tmdbDown: (data.errors || []).some((e) => /^tmdb/i.test(String(e))) };
@@ -91,7 +92,7 @@
         if (tmdbDown) { status.textContent = warn; results.append(el('div', { class: 'note', style: 'padding:8px 14px' }, warn)); }
         results.append(...items.map(m => el('button', { type: 'button', style: 'display:flex;gap:12px;align-items:center', onclick: () => showSeasons(m) },
           m.posterPath ? el('img', { src: 'https://image.tmdb.org/t/p/w92' + m.posterPath, alt: '', width: 40, height: 60, loading: 'lazy', style: 'border-radius:6px;flex:0 0 auto;object-fit:cover' }) : null,
-          el('span', {}, m.title, el('small', {}, m.type + (m.year ? ' · ' + m.year : '')))
+          el('span', {}, m.title, el('small', {}, m.type + (m.year ? ' · ' + m.year : '') + (langName(m.originalLanguage) ? ' · ' + langName(m.originalLanguage) : '')))
         )));
       } catch (e) {
         loading.hidden = true; status.textContent = e.message;

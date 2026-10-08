@@ -20,6 +20,7 @@ interface TmdbResult {
   poster_path?: string | null;
   popularity?: number;
   overview?: string;
+  original_language?: string;
   media_type?: string;
 }
 
@@ -56,37 +57,98 @@ function mapResult(m: TmdbResult, type: 'tv' | 'movie'): Media {
     ...(m.poster_path ? { posterPath: m.poster_path } : {}),
     ...(m.overview ? { overview: m.overview.slice(0, 220) } : {}),
     ...(typeof m.popularity === 'number' ? { popularity: m.popularity } : {}),
+    ...(m.original_language ? { originalLanguage: m.original_language } : {}),
   };
 }
 
-// Exact title first, then titles starting with the query, then the rest; most popular first inside each group.
-export function rankByQuery(items: Media[], query: string): Media[] {
-  const q = query.trim().toLowerCase();
+const LANGS: Record<string, string> = {
+  telugu: 'te', hindi: 'hi', tamil: 'ta', malayalam: 'ml', kannada: 'kn', bengali: 'bn', marathi: 'mr', punjabi: 'pa',
+  japanese: 'ja', korean: 'ko', english: 'en', chinese: 'zh', spanish: 'es', french: 'fr', german: 'de', thai: 'th',
+};
+const TYPE_WORDS: Record<string, 'tv' | 'movie'> = { movie: 'movie', movies: 'movie', film: 'movie', films: 'movie', tv: 'tv', series: 'tv', serial: 'tv', show: 'tv' };
+
+function within1(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0; let j = 0; let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++; else if (a.length < b.length) j++; else { i++; j++; }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+function hint<T>(word: string, map: Record<string, T>): T | undefined {
+  if (word in map) return map[word];
+  if (word.length < 5) return undefined;
+  const key = Object.keys(map).find((k) => k.length >= 5 && within1(word, k));
+  return key ? map[key] : undefined;
+}
+
+export interface ParsedQuery { text: string; type?: 'tv' | 'movie'; lang?: string; year?: number; hinted: boolean }
+
+// "og telugu mmovie 2025" -> text "og", lang te, type movie, year 2025. Hints are optional: the raw query is still searched too.
+export function parseQuery(query: string): ParsedQuery {
+  const raw = query.trim();
+  const tokens = raw.split(/\s+/).filter(Boolean);
+  const keep: string[] = [];
+  let type: ParsedQuery['type']; let lang: string | undefined; let year: number | undefined;
+  const maxYear = new Date().getFullYear() + 2;
+  for (const t of tokens) {
+    const w = t.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    if (/^\d{4}$/.test(w) && tokens.length > 1 && Number(w) >= 1900 && Number(w) <= maxYear) { year = Number(w); continue; }
+    const l = hint(w, LANGS); if (l) { lang = l; continue; }
+    const k = hint(w, TYPE_WORDS); if (k) { type = k; continue; }
+    if (w === 'anime') continue;
+    keep.push(t);
+  }
+  const text = keep.join(' ').trim();
+  if (text.length < 2) return { text: raw, hinted: false };
+  return { text, type, lang, year, hinted: text.toLowerCase() !== raw.toLowerCase() };
+}
+
+// Exact title first, then titles starting with the query, then the rest. Inside a group: preferred language, then most popular.
+export function rankByQuery(items: Media[], query: string, opts: { alt?: string; lang?: string } = {}): Media[] {
+  const qs = [query, opts.alt].filter((x): x is string => !!x).map((x) => x.trim().toLowerCase());
   const tier = (m: Media) => {
     const names = [m.title, ...m.altTitles].map((t) => t.toLowerCase());
-    return names.includes(q) ? 0 : names.some((t) => t.startsWith(q)) ? 1 : 2;
+    return Math.min(...qs.map((q) => (names.includes(q) ? 0 : names.some((t) => t.startsWith(q)) ? 1 : 2)));
   };
-  return items.map((m, i) => ({ m, i })).sort((a, b) => tier(a.m) - tier(b.m) || (b.m.popularity ?? 0) - (a.m.popularity ?? 0) || a.i - b.i).map((x) => x.m);
+  const lang = (m: Media) => (opts.lang && m.originalLanguage === opts.lang ? 0 : 1);
+  return items.map((m, i) => ({ m, i })).sort((a, b) => tier(a.m) - tier(b.m) || lang(a.m) - lang(b.m) || (b.m.popularity ?? 0) - (a.m.popularity ?? 0) || a.i - b.i).map((x) => x.m);
 }
 
 export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): MediaResolver {
+  const fetchKind = async (kind: 'tv' | 'movie', text: string, page: number, year?: number): Promise<Media[]> => {
+    const yearParam = year ? `&${kind === 'tv' ? 'first_air_date_year' : 'year'}=${year}` : '';
+    const url = `https://api.themoviedb.org/3/search/${kind}?query=${encodeURIComponent(text)}&include_adult=false&language=en-US&page=${page}${yearParam}`;
+    const res = await fetchRetry(fetchImpl, url, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status} from TMDB ${kind === 'tv' ? 'TV' : 'movie'} search`);
+    const data = (await res.json()) as { results?: TmdbResult[] };
+    return (data.results ?? []).map((m) => mapResult(m, kind));
+  };
   return {
     name: 'tmdb',
     async search(query: string): Promise<Media[]> {
-      const encoded = encodeURIComponent(query);
-      const [tvRes, movieRes] = await Promise.all([
-        fetchRetry(fetchImpl, `https://api.themoviedb.org/3/search/tv?query=${encoded}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) }),
-        fetchRetry(fetchImpl, `https://api.themoviedb.org/3/search/movie?query=${encoded}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) }),
-      ]);
-      if (!tvRes.ok) throw new Error(`HTTP ${tvRes.status} from TMDB TV search`);
-      if (!movieRes.ok) throw new Error(`HTTP ${movieRes.status} from TMDB movie search`);
-      const tv = (await tvRes.json()) as { results?: TmdbResult[] };
-      const movies = (await movieRes.json()) as { results?: TmdbResult[] };
-      const all = [
-        ...(tv.results ?? []).slice(0, 12).map((m) => mapResult(m, 'tv')),
-        ...(movies.results ?? []).slice(0, 12).map((m) => mapResult(m, 'movie')),
-      ];
-      return rankByQuery(all, query).slice(0, 15);
+      const p = parseQuery(query);
+      const jobs: Array<Promise<Media[]>> = [];
+      const rawJobs = [fetchKind('tv', query.trim(), 1), fetchKind('movie', query.trim(), 1)];
+      const hintedJobs: Array<Promise<Media[]>> = [];
+      if (p.hinted) {
+        for (const kind of p.type ? [p.type] : (['tv', 'movie'] as const)) {
+          for (const page of p.lang ? [1, 2] : [1]) hintedJobs.push(fetchKind(kind, p.text, page, p.year));
+        }
+      }
+      jobs.push(...hintedJobs, ...rawJobs);
+      const settled = await Promise.allSettled(jobs);
+      const ok = settled.filter((s): s is PromiseFulfilledResult<Media[]> => s.status === 'fulfilled');
+      if (!ok.length) throw (settled[0] as PromiseRejectedResult).reason;
+      const hinted = settled.slice(0, hintedJobs.length).flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
+      const raw = settled.slice(hintedJobs.length).flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
+      const langHits = p.lang ? hinted.filter((m) => m.originalLanguage === p.lang) : hinted;
+      const seen = new Set<string>();
+      const all = [...(langHits.length ? langHits : hinted), ...raw].filter((m) => !seen.has(m.id) && !!seen.add(m.id));
+      return rankByQuery(all, query, { alt: p.hinted ? p.text : undefined, lang: p.lang }).slice(0, 15);
     },
   };
 }
