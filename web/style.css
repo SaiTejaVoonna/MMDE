@@ -190,3 +190,71 @@ button.tlitem:hover .tlgo{text-decoration:underline}
 .tproof::before { content: '✓ '; color: #3ecf8e; }
 .tsection[hidden] { display: none; }
 .plink.exact[data-p=youtubeMusic]{background:#ff9f6b;border-color:#ff9f6b}
+
+/* Phase 1: skeleton loading and source status */
+.skel-wrap{margin:8px 0}
+.skel-head{height:14px;width:55%;border-radius:8px;margin:10px 0 14px}
+.skel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+.skel-card{border:1px solid var(--line);border-radius:14px;padding:10px;background:rgba(21,29,45,.6)}
+.skel-art{aspect-ratio:1;border-radius:10px;margin-bottom:10px}
+.skel-line{height:11px;border-radius:6px;margin:8px 0}.skel-line.short{width:60%}
+.skel-head,.skel-art,.skel-line{background:linear-gradient(90deg,#182036 25%,#223050 50%,#182036 75%);background-size:200% 100%;animation:skel 1.3s ease-in-out infinite}
+@keyframes skel{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.srcstrip{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:4px 0 10px}
+.srcchip{font-size:12px;border:1px solid var(--line);border-radius:99px;padding:3px 10px;color:var(--mute);background:rgba(255,255,255,.03)}
+.srcchip b{font-weight:700;margin-right:2px}
+.s-ok{color:#8be7c0;border-color:#1f5a46}.s-failed{color:#ffb4b4;border-color:#6b2c2c}.s-pending{color:#f1d28a;border-color:#5a4a1f}.s-empty{color:#aab3c5}
+.srcretry{margin-left:6px;border:0;background:none;color:var(--accent);cursor:pointer;font-size:12px;text-decoration:underline}
+.srcdetail{flex-basis:100%;color:var(--mute);font-size:12px}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid #5a4a1f;border-top-color:#f1d28a;border-radius:50%;margin-right:8px;vertical-align:-1px;animation:rot .9s linear infinite}
+@keyframes rot{to{transform:rotate(360deg)}}
+.pending-note{color:#f1d28a}
+@media (prefers-reduced-motion:reduce){.skel-head,.skel-art,.skel-line,.spin,.loading-fill{animation:none}}
+
+/* Phase 2: sort / filter / group toolbar */
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 6px;align-items:center}
+.tq{flex:1 1 220px;min-width:180px;height:38px;border-radius:99px;border:1px solid #2c3a55;background:rgba(17,24,39,.9);color:var(--text);padding:0 16px;font-size:13px}
+.tq:focus,.tsel:focus{outline:none;border-color:#6d8fff;box-shadow:0 0 0 3px rgba(110,168,255,.12)}
+.tsel{height:38px;border-radius:99px;border:1px solid #2c3a55;background:rgba(17,24,39,.9);color:var(--text);padding:0 14px;font-size:13px;max-width:100%}
+.chip.tog.active{background:rgba(110,168,255,.16);border-color:#6ea8ff;color:#dbe7ff}
+.chip .n{opacity:.7;margin-left:2px}
+.tcount{display:flex;gap:10px;align-items:center}
+.fchips{justify-content:flex-start}
+
+/* Phase 3: calmer song cards, "My music app", How we know, tinted hero */
+.tconf{font-size:11px;font-weight:600;letter-spacing:.02em}
+.tconf.c-green{color:#6fe3b3}.tconf.c-amber{color:#f6cf6b}.tconf.c-red{color:#ff9d9d}
+.tmore{align-self:flex-start;border:0;background:none;color:var(--accent);cursor:pointer;font-size:11px;padding:2px 0;text-decoration:underline;text-underline-offset:2px}
+.tdetail{display:flex;flex-direction:column;gap:3px;margin-top:4px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)}
+.tdetail .tev{color:#8a97ae;font-size:11px}
+.tpills.has-main{flex-direction:column;align-items:stretch;gap:8px}
+.tpills.more{display:flex;gap:6px;flex-wrap:nowrap}
+.tview-cards .tpills.more .plink{width:30px;height:30px}
+.plink.primary{width:auto!important;border-radius:99px!important;padding:0 14px!important;height:36px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600}
+.plink.primary .plabel{display:inline!important;font-size:13px}
+.knowbox{border:1px solid var(--line);border-radius:12px;padding:8px 14px;margin:8px 0;background:rgba(255,255,255,.025)}
+.knowbox summary{cursor:pointer;color:#cfe0ff;font-weight:600}
+.knowlist{margin:4px 0 8px;padding-left:18px;color:var(--mute);font-size:13px}
+.dhero.tint{position:relative;overflow:hidden;isolation:isolate}
+.dhero.tint::before{content:"";position:absolute;inset:-30px;z-index:-1;background:inherit;filter:blur(26px) saturate(1.35);opacity:.55}
+.seasonbar{position:sticky;top:72px;z-index:6;padding:8px 10px;border-radius:14px;background:rgba(8,11,20,.72);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.06)}
+.top{backdrop-filter:blur(18px) saturate(1.2)}
+@media (max-width:640px){
+  .top{padding:0 16px}
+  main{padding:0 14px 56px}
+  .toolbar .tq,.toolbar .tsel{flex:1 1 100%}
+  .chip{min-height:40px}
+  .tview-cards .tbody{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .tview-cards .tpills.more .plink{width:34px;height:34px}
+  .seasonbar{top:64px;overflow-x:auto;flex-wrap:nowrap;justify-content:flex-start}
+  .seasonbar .chip{white-space:nowrap}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+@media (prefers-reduced-transparency:reduce){.top,.seasonbar{backdrop-filter:none;background:#0b1020}.dhero.tint::before{display:none}}
+.plink.primary,.plink.primary .plabel{white-space:nowrap}
+.plink.primary .plabel{font-size:12.5px}
+.ctrlbox{margin:8px 0}
+.ctrlbox>summary{cursor:pointer;color:#cfe0ff;font-weight:600;padding:6px 2px}
+/* Landing: let the trending rows start above the fold */
+.hero{min-height:0;padding:84px 0 40px}
+@media (max-width:640px){.hero{padding:56px 0 28px}}

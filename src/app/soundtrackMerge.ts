@@ -17,8 +17,15 @@ export type EvidenceSource = 'wikipedia' | 'apple' | 'deezer' | 'musicbrainz' | 
 export interface Evidence { source: EvidenceSource; label: string; url?: string }
 /** The public paper trail of an official release: what the catalogs (not the audio) say about a song. */
 export interface ReleaseProof { isrc?: string; label?: string; upc?: string; releaseDate?: string; release?: string; releaseUrl?: string }
+export type SongType = 'song' | 'score' | 'opening' | 'ending';
+/** How each source did for this request, so the page can say what was checked (and what is still loading). */
+export interface SourceStatus { key: 'wikipedia' | 'catalog' | 'musicbrainz' | 'animethemes' | 'wikidata'; label: string; state: 'ok' | 'empty' | 'failed' | 'pending'; detail?: string }
 export interface MergedTrack {
   key: string;
+  /** What kind of recording: a song, a background score cue, or an anime opening/ending. */
+  type?: SongType;
+  /** Original, instrumental, remix, cover, live... read from the title (see matching/normalize). */
+  version?: string;
   /** Official Release Proof, from MusicBrainz (ISRC, label, barcode, date). Absent when no release database lists the song. */
   proof?: ReleaseProof;
   /** The same song in another language release (matched by track number, length and composer, NOT by title): probable, never confirmed. */
@@ -42,6 +49,8 @@ export interface MergedSoundtrack {
   /** Albums/playlists that were found but dropped because neither artist nor songs matched this title. */
   skipped: Array<{ name: string; platform: string; reason: string }>;
   counts: { green: number; amber: number; red: number; total: number };
+  /** Per-source outcome of this lookup. */
+  sources?: SourceStatus[];
   /** Languages of the releases found, with song counts. */
   languages: Array<{ language: string; songs: number }>;
   /** How we know the albums belong to this title: the film's composer (TMDB), a Wikipedia tracklist, or 'none' (matched by name only). */
@@ -52,6 +61,7 @@ export interface MergedSoundtrack {
   partial: boolean;
 }
 
+const SCORE_SECTION = /\b(score|bgm|background|cues?|instrumentals?)\b/i;
 const PLATFORM_LABEL = { apple: 'Apple Music', deezer: 'Deezer', 'deezer-playlist': 'Deezer playlist' } as const;
 
 /** Same song = same normalized title (accents, spelling doubles, "(From ...)" tails ignored) and same version kind. */
@@ -106,6 +116,7 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
         const existing = byKey.get(key);
         if (existing) { addEvidence(existing, wikiEvidence); continue; } // same song listed in two Wikipedia sections: keep the first
         const m: MergedTrack = { key, no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec, confidence: 'amber', evidence: [wikiEvidence], links: {} };
+        m.type = SCORE_SECTION.test(sec.name) ? 'score' : 'song';
         byKey.set(key, m); tracks.push(m);
       }
       if (tracks.length) sections.push({ name: sec.name, origin: 'wikipedia', tracks, language: languageFromName(sec.name) });
@@ -122,7 +133,7 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
       const ev: Evidence = { source: 'animethemes', label: `AnimeThemes: ${entry.name} ${th.slug}`, url: th.url };
       const known = byKey.get(key);
       if (known) { addEvidence(known, ev); continue; }
-      const m: MergedTrack = { key, no: th.sequence ?? n, title: th.title, artists: th.artists, confidence: 'amber', evidence: [ev], links: {} };
+      const m: MergedTrack = { key, no: th.sequence ?? n, title: th.title, artists: th.artists, confidence: 'amber', evidence: [ev], links: {}, type: th.type === 'ED' ? 'ending' : 'opening' };
       byKey.set(key, m); tracks.push(m);
     }
     if (tracks.length) sections.push({ name: `Openings and endings · ${entry.name}${entry.year ? ` (${entry.year}${entry.season ? ' ' + entry.season : ''})` : ''}`, origin: 'animethemes', tracks, releaseDate: entry.year ? `${entry.year}-${({ Winter: '01', Spring: '04', Summer: '07', Fall: '10' } as Record<string, string>)[entry.season ?? ''] ?? '06'}-01` : undefined, exactYear: true });
@@ -224,6 +235,8 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
     if (verified === 'none' && t.confidence === 'amber') t.confidence = 'red';
   }
   for (const sec of kept) for (const t of sec.tracks) { counts[t.confidence]++; counts.total++; }
+  for (const t of byKey.values()) { t.version = classifyVersion(t.title); t.type ??= 'song'; if (t.version === 'instrumental' && t.type === 'song') t.type = 'score'; }
+  for (const sec of kept) if (SCORE_SECTION.test(sec.name) && sec.origin !== 'animethemes') for (const t of sec.tracks) if (t.type === 'song') t.type = 'score';
   linkVersions(kept);
   const langCount = new Map<string, number>();
   for (const sec of kept) if (sec.language) langCount.set(sec.language, (langCount.get(sec.language) ?? 0) + sec.tracks.length);
