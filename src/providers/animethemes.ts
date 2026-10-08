@@ -1,7 +1,7 @@
 import type { Media, PartRef, TrackClaim, TrackRole } from '../domain/types.ts';
 import { createRateLimiter, type DiscoveryProvider } from './types.ts';
 
-interface Song { id?: number; title?: { romaji?: string; native?: string }; artists?: Array<{ id?: number; name?: string }> }
+interface Song { id?: number; title?: { romaji?: string; native?: string }; performances?: Array<{ relevance?: number; alias?: string | null; as?: string | null; artist?: { id?: number; name?: { main?: string; native?: string } }; member?: { id?: number; name?: { main?: string; native?: string } } }> }
 interface Entry { id?: number; version?: number; episodes?: string | null; notes?: string | null }
 interface Theme { id?: number; type?: string | null; sequence?: number | null; slug?: string; song?: Song | null; animethemeentries?: Entry[] }
 interface Anime { id?: number; name?: string; slug?: string; title?: { romaji?: string; english?: string; native?: string }; animethemes?: Theme[] }
@@ -35,7 +35,7 @@ export function animeThemesProvider(fetchImpl: typeof fetch = fetch): DiscoveryP
           title { romaji english native }
           animethemes {
             id slug type sequence
-            song { id title { romaji native } artists { id name } }
+            song { id title { romaji native } performances { relevance alias as artist { id name { main native } } member { id name { main native } } } }
             animethemeentries { id version episodes notes }
           }
         }
@@ -68,7 +68,7 @@ export function animeThemesProvider(fetchImpl: typeof fetch = fetch): DiscoveryP
         const r = role(theme.type);
         const title = theme.song?.title?.romaji?.trim() || theme.song?.title?.native?.trim();
         if (!r || !title) continue;
-        const artists = (theme.song?.artists ?? []).map((a) => a.name?.trim()).filter((x): x is string => !!x);
+        const artists = (theme.song?.performances ?? []).sort((a, b) => (a.relevance ?? 999) - (b.relevance ?? 999)).flatMap((p) => [p.artist?.name?.main, p.artist?.name?.native, p.member?.name?.main, p.member?.name?.native]).map((x) => x?.trim()).filter((x): x is string => !!x).filter((x, i, a) => a.indexOf(x) === i);
         const position = theme.sequence ? `${theme.type}${theme.sequence}` : theme.type ?? undefined;
         const entry = (theme.animethemeentries ?? [])[0];
         const context = [entry?.episodes ? `episodes ${entry.episodes}` : '', entry?.notes ?? ''].filter(Boolean).join('; ');
