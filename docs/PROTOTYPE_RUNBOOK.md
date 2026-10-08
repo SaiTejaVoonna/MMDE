@@ -2,6 +2,9 @@
 
 Personal, non-commercial prototype on branch `prototype/m1-slime`. Proposal only; nothing here is an approved decision.
 
+## Live site (GitHub Pages)
+https://saitejavoonna.github.io/MMDE/ is the browser-only build, published from the `gh-pages` branch (a snapshot of `web/` from `prototype/m1-slime`; republish after app changes). Verified 2026-10-08 that the HTML and `mmde.js` are served. Live-provider behaviour (AniList, MusicBrainz, Wikipedia, Anthropic CORS) is still untested on the real site.
+
 ## Easiest: browser only (no server, no install)
 1. Download the ZIP: https://github.com/SaiTejaVoonna/MMDE/archive/refs/heads/prototype/m1-slime.zip and unzip it.
 2. Double-click `web/index.html`. That is the whole app (one bundled script, `web/mmde.js`).

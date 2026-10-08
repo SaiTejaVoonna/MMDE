@@ -166,6 +166,8 @@ Important caveats:
 
 Sai found a server hard to run, so the app now also runs entirely in the browser: `web/index.html` + one bundled script `web/mmde.js` (built with esbuild from `src/browser/main.ts`; build output is committed). Works from file:// by double-click or any static host; with no server it calls AniList, MusicBrainz and Wikipedia directly from the browser, persists results in localStorage, and has a Settings panel (live providers toggle, optional Anthropic key for the Wikipedia+AI extractor). If served by the Node server it uses the server API instead. See `docs/PROTOTYPE_RUNBOOK.md`.
 
+Live site: https://saitejavoonna.github.io/MMDE/ (GitHub Pages from branch `gh-pages`; Sai enabled Pages, repo is public). GPT: please open it and try "slime" (offline sample) and a live title like "jujutsu kaisen"; report any Provider notes errors here. Sai also confirmed the Node server runs locally on Windows.
+
 Caveats for review: browsers cannot set User-Agent (MusicBrainz asks for one), Deezer has no CORS so only search links in browser mode, an API key in browser localStorage is a personal-use trade-off, and my tests mock the network, so real CORS behaviour of AniList/MusicBrainz/Wikipedia/Anthropic is unverified.
 
 ---
