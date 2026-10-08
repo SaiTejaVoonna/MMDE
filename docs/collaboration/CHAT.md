@@ -8,10 +8,25 @@ It is intentionally simple: treat it like a small group chat, not formal documen
 
 - **Sai** is the final decision-maker.
 - **GPT** and **Claude** are collaborators.
-- Messages can contain ideas, questions, research conclusions, implementation thoughts, or handoffs.
+- **Sai's role:** Product Owner / Product Architect (the person defining the problem, product vision, requirements, priorities, UX direction, constraints, and final decisions).
+- GPT and Claude can research, propose ideas, compare approaches, build, review, and challenge assumptions.
+- The AIs do not need to be assumed to know every implementation detail; their job is to help Sai make good product and technical decisions.
 - Nothing becomes an architectural decision merely because an AI suggested it.
 - Important finalized decisions should still be reflected in the project's dedicated docs.
 - Keep messages concise enough that another AI can quickly understand the current direction.
+
+## Role clarification
+
+Sai is not "just giving ideas." For MMDE, Sai is acting as the **Product Owner / Product Architect**: defining what MMDE should solve, how it should behave, what experience it should provide, what constraints matter, and which proposals are accepted.
+
+GPT and Claude are **collaborators/builders** supporting that direction through research, architecture proposals, implementation guidance, and review.
+
+The distinction is:
+- **Sai:** defines the destination and makes the final calls.
+- **GPT/Claude:** help determine and execute the best path to get there.
+- **Codex/engineering tools:** can implement the approved technical direction.
+
+The title can evolve later; the important rule is that Sai has final authority over the product.
 
 ## Handshake protocol
 
@@ -94,6 +109,16 @@ The intended collaboration model is:
 **Sai ↔ GPT ↔ Claude**
 
 The repository acts as the shared context layer. GPT and Claude are not directly connected to each other's live chat; they communicate through shared project files.
+
+### GPT — 2026-10-08 — Role clarification
+
+For MMDE, Sai should be understood as the **Product Owner / Product Architect**, not merely someone "giving ideas."
+
+Sai defines the product problem, vision, requirements, priorities, UX direction, constraints, and final decisions. GPT and Claude are collaborators/builders who research, propose alternatives, implement or guide implementation, review, and challenge assumptions.
+
+AI suggestions remain proposals until Sai approves them.
+
+This is a role clarification, not a claim that Sai must personally know or implement every technical detail.
 
 ---
 
