@@ -31,15 +31,21 @@
     return data;
   };
   // Phase 1 is the fast path: ask only TMDB (+ local seeds). If the server has no TMDB credential it falls back to all sources.
-  const search = async (q) => (await call('/api/search?q=' + encodeURIComponent(q) + '&sources=tmdb,local-seeds')).results || [];
+  const search = async (q) => {
+    const data = await call('/api/search?q=' + encodeURIComponent(q) + '&sources=tmdb,local-seeds');
+    return { items: data.results || [], tmdbDown: (data.errors || []).some((e) => /^tmdb/i.test(String(e))) };
+  };
   const showSeasons = async (media) => {
     app.replaceChildren(
       el('a', { href: '#/', onclick: e => { e.preventDefault(); renderSearch(); } }, '← Back to search'),
       el('div', { class: 'card' }, el('h2', {}, media.title), el('div', { class: 'meta' }, el('span', { class: 'tag' }, media.type), media.year ? el('span', { class: 'tag' }, media.year) : null)),
-      el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, media.type === 'tv' ? 'Loading seasons...' : 'Movie selected'))
+      el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, media.type === 'tv' ? 'Loading seasons...' : (media.type === 'movie' ? 'Movie selected' : 'Sample entry selected')))
     );
     if (media.type !== 'tv') {
-      app.append(el('div', { class: 'card' }, el('h3', {}, 'Movie'), el('p', { class: 'note' }, 'Movies do not have seasons.')));
+      const isMovie = media.type === 'movie';
+      app.append(el('div', { class: 'card' },
+        el('h3', {}, isMovie ? 'Movie' : 'No season data'),
+        el('p', { class: 'note' }, isMovie ? 'Movies do not have seasons.' : 'This is a built-in sample entry. Go back and search again: when TMDB answers, the real TV result with seasons appears.')));
       return;
     }
     try {
@@ -75,9 +81,11 @@
       if (q.length < 2) return;
       loading.hidden = false; status.textContent = ''; results.replaceChildren();
       try {
-        const items = await search(q);
+        const { items, tmdbDown } = await search(q);
         loading.hidden = true;
-        if (!items.length) { status.textContent = 'No matches found.'; return; }
+        const warn = 'TMDB could not be reached just now (network). Showing limited results - press Enter to search again.';
+        if (!items.length) { status.textContent = tmdbDown ? warn : 'No matches found.'; return; }
+        if (tmdbDown) status.textContent = warn;
         results.append(...items.map(m => el('button', { type: 'button', onclick: () => showSeasons(m) },
           m.title, el('small', {}, m.type + (m.year ? ' · ' + m.year : ''))
         )));

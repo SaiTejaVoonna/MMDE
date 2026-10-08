@@ -22,6 +22,20 @@ interface TmdbResult {
   media_type?: string;
 }
 
+// Some home networks reset a connection now and then (ECONNRESET). Retry only
+// network failures and 502/503/504, a few times, so one blip is not a failed search.
+export async function fetchRetry(fetchImpl: typeof fetch, url: string, init: RequestInit, tries = 3, delayMs = 400): Promise<Response> {
+  let last: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetchImpl(url, init);
+      if (![502, 503, 504].includes(res.status) || i === tries - 1) return res;
+    } catch (e) { last = e; if (i === tries - 1) throw e; }
+    await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+  }
+  throw last;
+}
+
 function authHeaders(token: string): HeadersInit {
   return { Accept: 'application/json', Authorization: `Bearer ${token}` };
 }
@@ -47,8 +61,8 @@ export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): Me
     async search(query: string): Promise<Media[]> {
       const encoded = encodeURIComponent(query);
       const [tvRes, movieRes] = await Promise.all([
-        fetchImpl(`https://api.themoviedb.org/3/search/tv?query=${encoded}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) }),
-        fetchImpl(`https://api.themoviedb.org/3/search/movie?query=${encoded}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) }),
+        fetchRetry(fetchImpl, `https://api.themoviedb.org/3/search/tv?query=${encoded}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) }),
+        fetchRetry(fetchImpl, `https://api.themoviedb.org/3/search/movie?query=${encoded}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) }),
       ]);
       if (!tvRes.ok) throw new Error(`HTTP ${tvRes.status} from TMDB TV search`);
       if (!movieRes.ok) throw new Error(`HTTP ${movieRes.status} from TMDB movie search`);
@@ -70,7 +84,7 @@ export async function tmdbSeasons(
   if (media.externalIds.tmdbType !== 'tv') return [];
   const id = media.externalIds.tmdb;
   if (!id) return [];
-  const res = await fetchImpl(`https://api.themoviedb.org/3/tv/${encodeURIComponent(id)}?language=en-US`, { headers: authHeaders(token) });
+  const res = await fetchRetry(fetchImpl, `https://api.themoviedb.org/3/tv/${encodeURIComponent(id)}?language=en-US`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error(`HTTP ${res.status} from TMDB TV details`);
   const data = (await res.json()) as { seasons?: Array<{ season_number: number; name: string; air_date?: string | null; episode_count: number; poster_path?: string | null }> };
   return (data.seasons ?? [])
