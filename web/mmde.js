@@ -807,9 +807,10 @@ ${text}`;
   var PLATFORM_LABEL = { spotify: "Spotify", apple: "Apple Music", youtube: "YouTube", youtubeMusic: "YouTube Music", deezer: "Deezer" };
   var ROLE_FILTERS = ["All", "Openings", "Endings", "Insert Songs", "Character Songs", "OST", "Original Score"];
   function landing() {
-    const input = el("input", { class: "search", type: "search", placeholder: "Search an anime, movie, game or show...", autocomplete: "off", "aria-label": "Search media" });
+    const input = el("input", { class: "search", type: "search", placeholder: "Search a movie, anime, TV show or game...", autocomplete: "off", "aria-label": "Search media" });
     const suggest = el("div", { class: "suggest", hidden: true });
-    const status = el("div", { class: "note" });
+    const status = el("div", { class: "note search-status" });
+    const loading = el("div", { class: "search-loading", hidden: true, "aria-live": "polite" }, el("div", { class: "loading-line" }, el("span", { class: "loading-fill" })), el("span", { class: "loading-label" }, "Searching..."));
     let timer = 0, seq = 0;
     const run = async () => {
       const q = input.value.trim();
@@ -819,9 +820,13 @@ ${text}`;
         status.textContent = "";
         return;
       }
+      suggest.hidden = true;
+      loading.hidden = false;
+      status.textContent = "";
       try {
         const r = await api.search(q);
         if (mine !== seq) return;
+        loading.hidden = true;
         lastSearch = { query: q, sources: r.sources, errors: r.errors, count: r.results.length };
         suggest.replaceChildren(...r.results.map((m) => {
           mediaCache.set(m.id, m);
@@ -837,10 +842,14 @@ ${text}`;
         suggest.hidden = r.results.length === 0;
         status.textContent = r.results.length ? "" : `No results from: ${r.sources.join(", ")}.` + (r.errors.length ? ` Errors: ${r.errors.join("; ")}` : "");
       } catch (e) {
+        if (mine !== seq) return;
+        loading.hidden = true;
         status.textContent = `Search failed: ${e.message}`;
       }
     };
     input.addEventListener("input", () => {
+      const hasValue = input.value.trim().length > 0;
+      input.parentElement.querySelector(".search-clear").hidden = !hasValue;
       clearTimeout(timer);
       timer = setTimeout(run, 250);
     });
@@ -853,7 +862,7 @@ ${text}`;
         el("p", {}, "Search a title. MMDE finds its openings, endings, inserts and soundtracks, then links you to where the music lives."),
         el("div", { class: "searchwrap" }, input, suggest),
         status,
-        el("div", { class: "note" }, "Try:"),
+        el("div", { class: "note try-label" }, "Try searching"),
         el("div", { class: "chips" }, examples.map((t) => el("button", { class: "chip", type: "button", onclick: () => {
           input.value = t;
           input.focus();
@@ -884,7 +893,7 @@ ${text}`;
     return el(
       "div",
       { class: "card" },
-      el("strong", {}, "Adding to discovery"),
+      el("strong", {}, "Finding the music"),
       el("ul", { class: "progress" }, job.steps.map((s) => el(
         "li",
         {},
@@ -1012,7 +1021,7 @@ ${text}`;
       draw();
     };
     const discover = async (media2) => {
-      $app.replaceChildren(el("a", { href: "#/" }, "\u2190 Back to search"), header(media2), el("div", { class: "note" }, "Starting discovery..."));
+      $app.replaceChildren(el("a", { href: "#/" }, "\u2190 Back to search"), header(media2), el("div", { class: "note" }, "Finding music connected to this title..."));
       try {
         const result = await api.discover(media2, (job) => {
           $app.replaceChildren(el("a", { href: "#/" }, "\u2190 Back to search"), header(media2), progressView(job));
