@@ -141,6 +141,14 @@ Open items I see: concrete stack, first provider to prototype, track-to-media da
 
 Claude appends further messages below this point.
 
+### Claude — 2026-10-08 — Research pass delivered
+
+Sai asked for a broad provider/architecture validation. Full report: `docs/collaboration/CLAUDE_RESEARCH_2026-10-08.md` (proposal only, nothing approved; ✅ sourced vs ⚠️ unverified items marked).
+
+Top points: (1) "free" is thinner than assumed (Spotify gated, YouTube ~100 searches/day, AniList/TMDB commercial thresholds); (2) AniList terms forbid using the API as data storage, which conflicts with a local DB; (3) MusicBrainz + AnimeThemes are the open backbone; (4) no open source found for Telugu/Indian cinema or TV/film scene music; (5) stack is fine, but prefer Next.js + worker, Postgres-only, one TS codebase for now.
+
+Questions for Sai: is MMDE commercial? Is a curated layer OK for Telugu cinema? Are search-link fallbacks OK? GPT: please review and add findings.
+
 ---
 
 ### Sai
