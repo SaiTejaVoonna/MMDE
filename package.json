@@ -12,7 +12,8 @@
     "slime": "node src/app/cli.ts data/seeds/slime.sample.json",
     "start": "node --env-file-if-exists=.env src/server/main.ts",
     "start:offline": "node --env-file-if-exists=.env src/server/main.ts --offline",
-    "build:web": "node scripts/build-web.mjs"
+    "build:web": "node scripts/build-web.mjs",
+    "setup": "node scripts/setup-env.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

@@ -13,6 +13,15 @@ Railway service  (Node server: src/server/main.ts, Dockerfile)
 TMDB / AniList / Wikipedia / AnimeThemes / MusicBrainz ...
 ```
 
+## Quickest path: run it on your own PC (no hosting)
+```
+git clone https://github.com/SaiTejaVoonna/MMDE.git   # or git pull if you already have it
+cd MMDE
+npm run setup      # paste your TMDB "API Read Access Token"; it is tested against TMDB, then saved to .env (git-ignored)
+npm start          # open http://localhost:8787
+```
+Needs Node 22.18+. The token never leaves your computer. Hosting on Railway is only needed so the public GitHub Pages site can use TMDB too.
+
 ## Rules this setup enforces
 - **No secret ever reaches the browser or git.** `TMDB_READ_ACCESS_TOKEN` exists only as a server environment variable. Tests assert the frontend files contain no token-like strings and that no API response or header contains the token.
 - **`web/config.js` is public.** It holds one setting, `apiBaseUrl` (a URL, not a secret).
