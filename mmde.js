@@ -1242,7 +1242,7 @@ ${text}`;
       const seasons = await api.getSeasons(media);
       const body = seasons.length ? seasons.map((s) => el(
         "button",
-        { class: "season-card", type: "button", onclick: () => {
+        { class: "chip", type: "button", onclick: () => {
           location.hash = `#/media/${encodeURIComponent(media.id)}?season=${s.seasonNumber}`;
         } },
         el("strong", {}, s.name || `Season ${s.seasonNumber}`),
