@@ -1,6 +1,8 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { aniListResolver } from '../providers/anilist.ts';
+import { jikanResolver } from '../providers/jikan.ts';
+import { wikipediaResolver } from '../providers/wikipedia.ts';
 import { animeThemesProvider } from '../providers/animethemes.ts';
 import { curatedProvider } from '../providers/curated.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
@@ -24,7 +26,7 @@ const linkResolvers = [];
 let recordingResolver;
 
 if (!offline) {
-  mediaResolvers.push(aniListResolver());
+  mediaResolvers.push(aniListResolver(), jikanResolver(), wikipediaResolver());
   providers.push(animeThemesProvider());
   recordingResolver = musicBrainzResolver(userAgent);
   linkResolvers.push(deezerResolver());
