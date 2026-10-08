@@ -94,7 +94,7 @@ async function main() {
         const s = await getJson(`${base}/api/search?q=slime&sources=tmdb,local-seeds`);
         const tv = (s.body.results ?? []).find((r) => /^tmdb-tv-\d+$/.test(r.id) && /slime/i.test(r.title));
         if (s.status !== 200) fail('Search "slime" through MMDE', `HTTP ${s.status}`);
-        else if (!tv) fail('Search "slime" through MMDE', `no TMDB TV result. Sources: ${(s.body.sources ?? []).join(', ')}. Errors: ${(s.body.errors ?? []).join(' | ') || 'none'}`);
+        else if (!tv) fail('Search "slime" through MMDE', `no TMDB TV result. Sources: ${(s.body.sources ?? []).join(', ')}. Errors: ${(s.body.errors ?? []).join(' | ') || 'none'}. Got ${(s.body.results ?? []).length} results: ${(s.body.results ?? []).slice(0, 6).map((r) => `${r.title} [${r.id}]`).join('; ') || 'none'}. (Often a network blip: run the doctor again.)`);
         else {
           pass('Search "slime" through MMDE', `${s.body.results.length} results; found "${tv.title}" (${tv.id})`);
           const seasons = await getJson(`${base}/api/seasons/${encodeURIComponent(tv.id)}`);
