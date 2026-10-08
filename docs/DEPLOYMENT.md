@@ -18,9 +18,10 @@ TMDB / AniList / Wikipedia / AnimeThemes / MusicBrainz ...
 git clone https://github.com/SaiTejaVoonna/MMDE.git   # or git pull if you already have it
 cd MMDE
 npm run setup      # paste your TMDB "API Read Access Token"; it is tested against TMDB, then saved to .env (git-ignored)
+npm run doctor     # ONE command that checks everything: Node, files, token, port, then runs the real server, search and seasons
 npm start          # open http://localhost:8787
 ```
-Needs Node 22.18+. The token never leaves your computer. Hosting on Railway is only needed so the public GitHub Pages site can use TMDB too.
+Needs Node 22.13 or newer (tested on a real v22.13.0 and on 22.22; the npm scripts add `--experimental-strip-types` automatically, which Node 22.18+ no longer needs). `npm run doctor` prints PASS / WARN / FAIL lines with what to do for each. The token never leaves your computer and is never printed. Hosting on Railway is only needed so the public GitHub Pages site can use TMDB too.
 
 ## Rules this setup enforces
 - **No secret ever reaches the browser or git.** `TMDB_READ_ACCESS_TOKEN` exists only as a server environment variable. Tests assert the frontend files contain no token-like strings and that no API response or header contains the token.

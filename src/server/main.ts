@@ -5,7 +5,7 @@ import { jikanResolver } from '../providers/jikan.ts';
 import { wikipediaResolver } from '../providers/wikipedia.ts';
 import { animeThemesProvider } from '../providers/animethemes.ts';
 import { curatedProvider } from '../providers/curated.ts';
-import { tmdbResolver } from '../providers/tmdb.ts';
+import { tmdbResolver, tmdbSeasons } from '../providers/tmdb.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
 import { loadSeeds, seedMediaResolver } from '../providers/seeds.ts';
 import { anthropicComplete, wikiLlmProvider } from '../providers/wikiLlm.ts';
@@ -25,7 +25,10 @@ const seeds = await loadSeeds(join(root, 'data', 'seeds'));
 const providers = seeds.map((s) => curatedProvider(s));
 const mediaResolvers = [seedMediaResolver(seeds)];
 const tmdbToken = process.env.TMDB_READ_ACCESS_TOKEN;
-if (tmdbToken && !offline) mediaResolvers.unshift(tmdbResolver(tmdbToken));
+// Test hook only (unset in real use): point TMDB calls at a fake server so scripts/doctor.mjs can be tested offline.
+const tmdbTestBase = process.env.MMDE_TMDB_TEST_BASE;
+const tmdbFetch: typeof fetch = tmdbTestBase ? ((u, i) => fetch(String(u).replace('https://api.themoviedb.org/3', tmdbTestBase), i)) : fetch;
+if (tmdbToken && !offline) mediaResolvers.unshift(tmdbResolver(tmdbToken, tmdbFetch));
 const linkResolvers = [];
 let recordingResolver;
 
@@ -47,6 +50,7 @@ const trustProxy = process.env.MMDE_TRUST_PROXY === '1' || !!(process.env.RAILWA
 createApp({
   providers, mediaResolvers, recordingResolver, linkResolvers,
   tmdbToken, allowedOrigins, trustProxy,
+  seasons: (media, token) => tmdbSeasons(media, token, tmdbFetch),
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),
 }).listen(port, () => {
   console.log(`MMDE prototype on http://localhost:${port}  (${offline ? 'OFFLINE: local seeds only' : 'live providers enabled'})`);

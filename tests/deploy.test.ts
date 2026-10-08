@@ -252,3 +252,14 @@ test('no browser code path accepts, stores or sends a TMDB credential (including
   const bundle = readFileSync(join(root, 'web', 'mmde.js'), 'utf8');
   assert.ok(!/Authorization|Bearer/.test(bundle), 'built bundle must not contain bearer-token code');
 });
+
+test('guard: any script imported by a test must only run when invoked directly (otherwise the import exits the test process and the suite silently "passes")', () => {
+  const testsDir = join(root, 'tests');
+  for (const f of readdirSync(testsDir).filter((n) => n.endsWith('.test.ts'))) {
+    const src = readFileSync(join(testsDir, f), 'utf8');
+    for (const m of src.matchAll(/from\s+'\.\.\/scripts\/([\w.-]+\.mjs)'/g)) {
+      const script = readFileSync(join(root, 'scripts', m[1]!), 'utf8');
+      assert.match(script, /import\.meta\.url\)\s*===\s*(?:resolve\()?process\.argv\[1\]|resolve\(fileURLToPath\(import\.meta\.url\)\)\s*===\s*resolve\(process\.argv\[1\]\)/, `${f} imports scripts/${m[1]} which has no "run only when invoked directly" guard`);
+    }
+  }
+});
