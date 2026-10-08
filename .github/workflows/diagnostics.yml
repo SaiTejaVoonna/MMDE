@@ -10,7 +10,7 @@ on:
         description: Comma-separated titles to test
         default: slime,jujutsu kaisen,attack on titan
   push:
-    branches: [prototype/m1-slime]
+    branches: [prototype/m1-slime, gpt/live-discovery-engine]
     paths: ['src/**', 'scripts/diagnose.ts', 'data/**', '.github/workflows/diagnostics.yml']
 
 permissions:
