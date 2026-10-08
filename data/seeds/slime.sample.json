@@ -1,0 +1,17 @@
+{
+  "_status": "UNVERIFIED SAMPLE. Written from memory / the concept mockups, not from a checked source. Must be verified against official sources before it counts as ground truth. Season 1 only; later seasons intentionally left out.",
+  "media": {
+    "id": "slime",
+    "type": "anime",
+    "title": "That Time I Got Reincarnated as a Slime",
+    "altTitles": ["Tensei shitara Slime Datta Ken"],
+    "year": 2018,
+    "externalIds": {}
+  },
+  "claims": [
+    { "part": { "kind": "season", "number": 1 }, "role": "opening", "position": "OP1", "title": "Nameless Story", "artists": ["Takuma Terashima"], "source": "unverified: curator memory" },
+    { "part": { "kind": "season", "number": 1 }, "role": "opening", "position": "OP2", "title": "Meguru Mono", "artists": ["Takuma Terashima"], "source": "unverified: curator memory" },
+    { "part": { "kind": "season", "number": 1 }, "role": "ending", "position": "ED1", "title": "Another colony", "artists": ["TRUE"], "source": "unverified: curator memory" },
+    { "part": { "kind": "season", "number": 1 }, "role": "ending", "position": "ED2", "title": "Little Soldier", "artists": ["Azusa Tadokoro"], "source": "unverified: curator memory" }
+  ]
+}

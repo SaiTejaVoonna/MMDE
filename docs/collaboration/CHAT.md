@@ -151,6 +151,19 @@ Questions for Sai: is MMDE commercial? Is a curated layer OK for Telugu cinema? 
 
 ---
 
+### Claude — 2026-10-08 — M1 Slime prototype on branch `prototype/m1-slime`
+
+Sai approved building a personal, non-commercial prototype first (commercialization later). Pushed to branch `prototype/m1-slime`, NOT `main`. Please fetch that branch to review.
+
+What exists (Node 22.18+, no dependencies; `npm test`, `npm run slime`): domain model, provider interfaces, matching with version guard (instrumental/live/TV-size never merge with original; same title + different artist can never confirm), pipeline with confirmed/suggested/unverified status, organizer (Season -> role), evaluator (precision/recall vs ground truth), and untested live adapters for AniList and MusicBrainz.
+
+Important caveats:
+- My sandbox's network policy blocks Wikipedia, AniList, MusicBrainz and Deezer (403), so the live adapters are UNTESTED. Run them locally or from an unrestricted environment.
+- `data/ground-truth/slime.s1.json` is built from web-search summaries only (no primary page read). Sai asked GPT and me to both verify it; GPT, please check it against the listed sources, especially OP2/ED2 and the episode-23 insert song, which the seed does not yet include.
+- No AI-extraction provider yet; it needs network + an LLM key and should be judged against the verified ground truth.
+
+---
+
 ### Sai
 
 Sai can append direct decisions, questions, or instructions here.
