@@ -89,12 +89,12 @@ export function mbReleaseSource(userAgent: string, fetchImpl: typeof fetch = fet
      * matches a composer, or its title contains a distinctive form of the film title. Names only ("Kingdom") are never enough with a composer known.
      */
     async find(title: string, alts: string[] = [], composers: string[] = []): Promise<MbRelease[]> {
-      const key = `${looseFold(title)}|${alts.slice(0, 2).map(looseFold).join('+')}|${composers.map(looseFold).join('+')}`;
+      const key = `${looseFold(title)}|${alts.slice(0, 3).map(looseFold).join('+')}|${composers.map(looseFold).join('+')}`;
       const hit = cache.get(key);
       if (hit && Date.now() - hit.at < 12 * 3600_000) return hit.value;
       // Releases often drop the subtitle ("Baahubali 2 (Telugu)" for "Bāhubali 2: The Conclusion"): also try the part before ":" / " - ".
       const base = (n: string) => n.split(/\s*[:–—]\s*|\s+-\s+/)[0]!.trim();
-      const names = [...new Set([title, ...alts.slice(0, 2)].flatMap((n) => [n, base(n)]).filter((n) => n.length >= 4))];
+      const names = [...new Set([title, ...alts.slice(0, 3)].flatMap((n) => [n, base(n)]).filter((n) => n.length >= 4))];
       const found = new Map<string, any>();
       for (const name of names) {
         const q = `release:"${name.replace(/"/g, '')}"`;

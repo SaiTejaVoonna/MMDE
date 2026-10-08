@@ -15,6 +15,8 @@ export interface SoundtrackSources {
   animeThemes?: (title: string, alts: string[], firstYear?: number) => Promise<AnimeThemesEntry[]>;
   /** Optional: official releases from MusicBrainz (label, barcode, date, language, ISRCs). */
   musicBrainz?: (title: string, alts: string[], composers: string[]) => Promise<MbRelease[]>;
+  /** Optional: the title in other languages (Wikidata). Widens catalog searches only. */
+  wikidata?: (title: string, year?: number) => Promise<string[]>;
   /** Max time to wait for any one album's track list. Slower ones are skipped and the result is flagged partial. */
   timeoutMs?: number;
 }
@@ -51,7 +53,12 @@ export function belongsToTitle(album: CatalogAlbum, tracks: CatalogTrack[], comp
 }
 
 export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[]; anime?: boolean; season?: { number: number; airYear?: number } } = {}): Promise<MergedSoundtrack> {
-  const composers = ctx.composers ?? []; const alts = ctx.alts ?? [];
+  const composers = ctx.composers ?? [];
+  // Other-language names from Wikidata join the TMDB ones (one extra slot: catalogs are searched with the first 3, and each search costs a rate-limited call).
+  let wd: string[] = [];
+  if (src.wikidata) { try { wd = await withTimeout(src.wikidata(title, year), 8000); } catch { /* optional source */ } }
+  const base = ctx.alts ?? [];
+  const alts = [...new Set([...base.slice(0, 2), ...wd.filter((x) => !base.includes(x)).slice(0, 1), ...base.slice(2), ...wd.slice(1)])].slice(0, 8);
   const [w, a, at, mb] = await Promise.allSettled([src.wiki(title, year, alts), src.albums(title, year, undefined, alts), ctx.anime && src.animeThemes ? src.animeThemes(title, alts, year) : Promise.resolve([] as AnimeThemesEntry[]), src.musicBrainz ? src.musicBrainz(title, alts, composers) : Promise.resolve([] as MbRelease[])]);
   if (w.status === 'rejected' && a.status === 'rejected' && !(at.status === 'fulfilled' && at.value.length) && !(mb.status === 'fulfilled' && mb.value.length)) throw w.reason;
   let partial = w.status === 'rejected' || a.status === 'rejected';
@@ -82,5 +89,5 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
   const mbReleases = mb.status === 'fulfilled' ? mb.value : [];
   if (mb.status === 'rejected') partial = true;
   if (mbReleases.some((r) => nameMatchesDistinctiveTitle(r.title, [title, ...alts]))) titleVerified = true;
-  return mergeSoundtrack(wiki, fetched, { partial, composers, skipped, titleVerified, animeThemes, mbReleases, season: ctx.season ? { ...ctx.season, excluded: preExcluded } : undefined });
+  return mergeSoundtrack(wiki, fetched, { partial, composers, skipped, titleVerified, animeThemes, mbReleases, titles: [title, ...alts], season: ctx.season ? { ...ctx.season, excluded: preExcluded } : undefined });
 }

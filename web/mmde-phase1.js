@@ -123,7 +123,8 @@
         el('span', { class: 'tinfo' },
           el('strong', {}, meta ? el('span', { class: 'cdot cdot-' + meta.confidence, title: CONF_TEXT[meta.confidence] + '\n' + meta.evidence.map((e) => e.label).join('\n') }) : null, t.title),
           el('small', {}, [(t.artists || []).join(', '), fmtLen(t.lengthSec)].filter(Boolean).join(' · ')),
-          meta && meta.proof ? el('small', { class: 'tproof', title: 'From MusicBrainz, a public release database: the same codes the music industry uses to identify a release. MMDE reads the data, never the audio.' }, 'Official release' + [meta.proof.label, meta.proof.releaseDate, meta.proof.isrc ? 'ISRC ' + meta.proof.isrc : '', meta.proof.upc ? 'UPC ' + meta.proof.upc : ''].filter(Boolean).map((x) => ' · ' + x).join('')) : null,
+          meta && !meta.proof && meta.deezerIsrc ? el('small', { class: 'tproof', title: 'ISRC read from Deezer\'s public catalog. It identifies this exact recording across services.' }, 'Recording code · ISRC ' + meta.deezerIsrc + ' (Deezer)') : null,
+          meta && meta.proof ? el('small', { class: 'tproof', title: 'From MusicBrainz, a public release database: the same codes the music industry uses to identify a release. MMDE reads the data, never the audio.' }, 'Official release' + [meta.proof.label, meta.proof.releaseDate, meta.proof.isrc || meta.deezerIsrc ? 'ISRC ' + (meta.proof.isrc || meta.deezerIsrc) + (meta.deezerIsrc && meta.proof.isrc && meta.deezerIsrc === meta.proof.isrc ? ' (MusicBrainz and Deezer agree)' : meta.deezerIsrc && !meta.proof.isrc ? ' (Deezer)' : '') : '', meta.proof.upc ? 'UPC ' + meta.proof.upc : ''].filter(Boolean).map((x) => ' · ' + x).join('')) : null,
           meta && meta.versions && meta.versions.length ? el('small', { class: 'tproof', title: 'Matched by track number and length, not by title: probably the same song in another language release' }, 'Probably also in ' + meta.versions.map((v) => v.language + ' ("' + v.title + '")').join(', ')) : null,
           meta ? el('small', { class: 'tsrc' }, [...new Set(meta.evidence.map((e) => SRC_NAME[e.source] || e.source))].join(' + '),
             ...meta.evidence.filter((e) => e.source === 'animethemes' && e.url).slice(0, 1).map((e) => el('a', { class: 'vlink', href: safeUrl(e.url), target: '_blank', rel: 'noopener noreferrer', title: 'Watch this opening/ending on AnimeThemes (opens their site)' }, ' ▶ video'))) : null),
@@ -147,13 +148,24 @@
       }
       saveLib(); paintHeart();
     });
+    // ISRC from Deezer, only for songs that scroll into view and have a direct Deezer link (one small request each, throttled on the server).
+    let seen = false; let isrcTried = false;
+    const loadIsrc = () => {
+      if (!meta || isrcTried || (meta.proof && meta.proof.isrc)) return;
+      const m = links.deezer && links.deezer.kind === 'resolved' ? /deezer\.com\/(?:[a-z]{2}\/)?track\/(\d{1,15})/.exec(links.deezer.url) : null;
+      if (!m) return;
+      isrcTried = true;
+      call('/api/deezer-isrc?id=' + m[1]).then((r) => { if (r && r.isrc) { meta.deezerIsrc = r.isrc; draw(); } }).catch(() => { /* optional extra */ });
+    };
     const set = (r) => {
       (r.links || []).forEach((l) => { if (links[l.platform] && /^https:\/\//.test(l.url)) links[l.platform] = { url: l.url, kind: l.kind === 'resolved' ? 'resolved' : 'search' }; });
       if (r.art && /^https:\/\//.test(r.art)) art = r.art;
       draw();
+      if (seen) loadIsrc();
     };
     if (initial) { (initial.links ? Object.entries(initial.links).forEach(([p, l]) => { if (links[p] && l && /^https:\/\//.test(l.url)) links[p] = { url: l.url, kind: l.kind === 'resolved' ? 'resolved' : 'search' }; }) : 0); if (initial.art && /^https:\/\//.test(initial.art)) art = initial.art; }
     draw();
+    if (meta && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); seen = true; loadIsrc(); } }); io.observe(row); }
     return { el: row, set, resolve: async () => {
       try { set(await call('/api/track-links?title=' + encodeURIComponent(t.title) + '&film=' + encodeURIComponent(film.title) + '&artist=' + encodeURIComponent((t.artists || []).slice(0, 3).join('|')))); }
       catch (e) { /* keep the search links; they still work */ }

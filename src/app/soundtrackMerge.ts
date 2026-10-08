@@ -3,7 +3,7 @@ import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { CatalogAlbum, CatalogTrack } from '../providers/catalogAlbums.ts';
 import type { AnimeThemesEntry } from '../providers/animeThemesSearch.ts';
 import { languageFromName, type MbRelease } from '../providers/mbReleases.ts';
-import { artistMatches, looseFold } from '../providers/catalogAlbums.ts';
+import { artistMatches, isFilmAlbum, looseFold } from '../providers/catalogAlbums.ts';
 import { classifyForSeason, seasonMarkers, type SeasonFit } from './seasonScope.ts';
 
 // Phase A: merge every soundtrack source we have into ONE organized list, and say how much each song can be trusted.
@@ -91,7 +91,7 @@ export function linkVersions(sections: MergedSection[], toleranceSec = 3): void 
   }
 }
 
-export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped']; titleVerified?: boolean; animeThemes?: AnimeThemesEntry[]; mbReleases?: MbRelease[]; season?: { number: number; airYear?: number; excluded?: number } } = {}): MergedSoundtrack {
+export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped']; titleVerified?: boolean; animeThemes?: AnimeThemesEntry[]; mbReleases?: MbRelease[]; /** Title and alternative titles of the work, to check which album a community-playlist song really comes from. */ titles?: string[]; season?: { number: number; airYear?: number; excluded?: number } } = {}): MergedSoundtrack {
   const sections: MergedSection[] = [];
   const byKey = new Map<string, MergedTrack>(); // every song seen so far, wherever it was first listed
   const addEvidence = (t: MergedTrack, e: Evidence) => { if (!t.evidence.some((x) => x.source === e.source && x.label === e.label)) t.evidence.push(e); };
@@ -190,7 +190,11 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
       const key = trackKey(t.title);
       const known = byKey.get(key);
       if (known) { addEvidence(known, ev); known.links.deezer ??= t.url; continue; }
-      const m: MergedTrack = { key, no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec, confidence: 'red', evidence: [ev], links: { deezer: t.url }, art: t.art ?? album.art };
+      // A playlist is only a pointer: if the song's OWN album is named after the title (and credited to the composer when we know one),
+      // the song is an official release, so it earns catalog-level evidence instead of staying "community only".
+      const albumFits = !!t.album && (opts.titles ?? []).some((x) => isFilmAlbum(x, t.album!)) && (!(opts.composers ?? []).length || (opts.composers ?? []).some((c) => t.artists.some((a) => artistMatches(a, c))));
+      const evidence: Evidence[] = albumFits ? [{ source: 'deezer', label: `Deezer: ${t.album} (the song's own album, found through a community playlist)` }, ev] : [ev];
+      const m: MergedTrack = { key, no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec, confidence: albumFits ? 'amber' : 'red', evidence, links: { deezer: t.url }, art: t.art ?? album.art };
       byKey.set(key, m); fresh.push(m);
     }
     if (fresh.length) sections.push({ name: `Community playlist (unverified): ${album.name}`, origin: 'community', tracks: fresh, releaseDate: album.releaseDate });
