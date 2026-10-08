@@ -46,22 +46,34 @@
     return { original, text: rest.join(" "), lang, type };
   }
 
+  // search/src/http.js
+  var RETRY = /* @__PURE__ */ new Set([429, 502, 503, 504]);
+  async function fetchRetry(fetchImpl, url, init, { retries = 3, baseMs = 1500, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchImpl(url, init);
+      if (!RETRY.has(res.status) || attempt >= retries) return res;
+      const ra = Number(res.headers?.get?.("retry-after"));
+      await sleep(Number.isFinite(ra) && ra > 0 ? Math.min(ra, 30) * 1e3 : baseMs * 2 ** attempt);
+    }
+  }
+
   // search/src/sources/anilist.js
   var URL_ = "https://graphql.anilist.co";
   async function gql(fetchImpl, query, variables) {
-    const res = await fetchImpl(URL_, {
+    const res = await fetchRetry(fetchImpl, URL_, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ query, variables })
-    });
+    }, { sleep: gql.sleep });
     if (!res.ok) throw new Error(`HTTP ${res.status} from AniList`);
     const j = await res.json();
     if (j.errors?.length) throw new Error(`AniList: ${j.errors[0].message}`);
     return j.data;
   }
   var SEARCH = `query($q:String){Page(perPage:15){media(search:$q,type:ANIME,sort:SEARCH_MATCH){
-  id idMal title{romaji english native} synonyms format episodes status seasonYear startDate{year}
+  id idMal title{romaji english native} synonyms format episodes status seasonYear startDate{year} popularity
   coverImage{medium} description(asHtml:false) countryOfOrigin}}}`;
+  gql.sleep = void 0;
   var stripHtml = (s) => String(s ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   var title = (t) => t?.english || t?.romaji || t?.native || "";
   function mapAniListMedia(m) {
@@ -75,6 +87,7 @@
       altTitles: [m.title?.romaji, m.title?.english, m.title?.native, ...m.synonyms ?? []].filter((x) => x && x !== t),
       year: m.seasonYear ?? m.startDate?.year ?? void 0,
       format: m.format ?? void 0,
+      popularity: m.popularity ?? 0,
       episodes: m.episodes ?? void 0,
       poster: m.coverImage?.medium ?? void 0,
       description: stripHtml(m.description).slice(0, 240),
@@ -100,9 +113,11 @@
   id title{romaji english native} format episodes status startDate{year month day} coverImage{medium}
   relations{edges{relationType(version:2) node{id type title{romaji english native} format episodes status startDate{year month day} coverImage{medium}}}}}}}`;
   var dateKey = (d) => (d?.year ?? 9999) * 1e4 + (d?.month ?? 0) * 100 + (d?.day ?? 0);
-  var view = (n) => ({ id: n.id, title: title(n.title), native: n.title?.native, year: n.startDate?.year, episodes: n.episodes ?? void 0, format: n.format, status: n.status, poster: n.coverImage?.medium, url: `https://anilist.co/anime/${n.id}`, _d: dateKey(n.startDate) });
-  var clean = ({ _d, ...rest }) => rest;
+  var view = (n, rel) => ({ rel, id: n.id, title: title(n.title), native: n.title?.native, year: n.startDate?.year, episodes: n.episodes ?? void 0, format: n.format, status: n.status, poster: n.coverImage?.medium, url: `https://anilist.co/anime/${n.id}`, _d: dateKey(n.startDate) });
+  var clean = ({ _d, rel, ...rest }) => rest;
   var CHAIN = /* @__PURE__ */ new Set(["PREQUEL", "SEQUEL", "PARENT"]);
+  var EXTRA = /* @__PURE__ */ new Set(["SIDE_STORY", "SPIN_OFF", "OTHER"]);
+  var EXTRA_FORMATS = /* @__PURE__ */ new Set(["MOVIE", "OVA", "ONA", "SPECIAL", "TV_SHORT", "MUSIC"]);
   async function getAniListFranchise(anilistId, fetchImpl, { maxLevels = 8, maxNodes = 40 } = {}) {
     const nodes = /* @__PURE__ */ new Map();
     const fetched = /* @__PURE__ */ new Set();
@@ -121,18 +136,20 @@
           if (CHAIN.has(e.relationType)) {
             if (!nodes.has(n.id)) nodes.set(n.id, view(n));
             if (!fetched.has(n.id)) next.push(n.id);
-          } else if (e.relationType === "SIDE_STORY" && !nodes.has(n.id)) {
-            nodes.set(n.id, view(n));
+          } else if (EXTRA.has(e.relationType) && !nodes.has(n.id) && (EXTRA_FORMATS.has(n.format) || e.relationType === "SPIN_OFF" && n.format === "TV")) {
+            nodes.set(n.id, view(n, e.relationType));
           }
         }
       }
       frontier = [...new Set(next)];
     }
     const all = [...nodes.values()].sort((a, b) => a._d - b._d);
+    const spin = (n) => n.rel === "SPIN_OFF" && n.format === "TV";
     return {
-      seasons: all.filter((n) => n.format === "TV").map(clean),
+      seasons: all.filter((n) => n.format === "TV" && !spin(n)).map(clean),
       movies: all.filter((n) => n.format === "MOVIE").map(clean),
-      other: all.filter((n) => n.format && !["TV", "MOVIE"].includes(n.format)).map(clean)
+      other: all.filter((n) => n.format && !["TV", "MOVIE"].includes(n.format) && !spin(n)).map(clean),
+      spinoffs: all.filter(spin).map(clean)
     };
   }
   async function resolveAniListId(titleText, fetchImpl) {
@@ -201,7 +218,8 @@
     return m ? m[1] : void 0;
   }
   function mapWikipediaPages(pages) {
-    return Object.values(pages ?? {}).sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).filter((p) => WORK.test(p.description ?? "")).map((p) => ({
+    return Object.values(pages ?? {}).sort((a, b) => (a.index ?? 0) - (b.index ?? 0)).map((p, rank) => ({ p, rank })).filter(({ p }) => WORK.test(p.description ?? "")).map(({ p, rank }) => ({
+      wikiRank: rank,
       id: `wikipedia:${p.pageid}`,
       kind: inferKind(p.description),
       title: p.title,
@@ -214,6 +232,7 @@
       wikiTitle: p.title
     }));
   }
+  var retrySleep = { fn: void 0 };
   var TYPE_WORD = { movie: "film", tv: "television series", anime: "anime", game: "video game" };
   async function searchWikipedia(parsed, fetchImpl) {
     const q = [parsed.text, parsed.lang, TYPE_WORD[parsed.type]].filter(Boolean).join(" ");
@@ -230,14 +249,14 @@
       pithumbsize: "120",
       redirects: "1"
     });
-    const res = await fetchImpl(`${API2}?${params}`);
+    const res = await fetchRetry(fetchImpl, `${API2}?${params}`, void 0, { sleep: retrySleep.fn });
     if (!res.ok) throw new Error(`HTTP ${res.status} from Wikipedia`);
     const j = await res.json();
     return mapWikipediaPages(j.query?.pages);
   }
   async function getWikipediaSummary(title2, fetchImpl) {
     const params = new URLSearchParams({ action: "query", format: "json", origin: "*", prop: "extracts", exintro: "1", explaintext: "1", exchars: "700", titles: title2, redirects: "1" });
-    const res = await fetchImpl(`${API2}?${params}`);
+    const res = await fetchRetry(fetchImpl, `${API2}?${params}`, void 0, { sleep: retrySleep.fn });
     if (!res.ok) throw new Error(`HTTP ${res.status} from Wikipedia`);
     const j = await res.json();
     return Object.values(j.query?.pages ?? {})[0]?.extract ?? "";
@@ -245,12 +264,14 @@
 
   // search/src/search.js
   var keysOf = (r) => [r.title, ...r.altTitles ?? []].map(baseKey).filter(Boolean);
+  var qualified = (title2) => /\([^)]*\)\s*$/.test(String(title2 ?? ""));
   function score(r, parsed) {
     const q = norm(parsed.text);
     const qk = baseKey(parsed.text);
     let best = 0;
+    const exact = qualified(r.title) ? 85 : 100;
     for (const k of keysOf(r)) {
-      if (k === qk || k === q) best = Math.max(best, 100);
+      if (k === qk || k === q) best = Math.max(best, exact);
       else if (k.startsWith(q)) best = Math.max(best, 75);
       else if ((" " + k + " ").includes(" " + q + " ")) best = Math.max(best, 60);
       else {
@@ -259,7 +280,11 @@
         if (qt.length && kt.length) {
           const sims = qt.map((t) => Math.max(...kt.map((w) => wordSim(t, w))));
           const strong = sims.filter((x) => x >= 0.8);
-          if (strong.length) best = Math.max(best, Math.round(strong.reduce((a, b) => a + b, 0) / qt.length * 55));
+          if (strong.length) {
+            let fuzzy = strong.reduce((a, b) => a + b, 0) / qt.length * 70;
+            if (wordSim(qt[0], kt[0]) >= 0.8) fuzzy += 10;
+            best = Math.max(best, Math.round(fuzzy));
+          }
         }
       }
     }
@@ -271,13 +296,22 @@
     }
     if (r.kind === "book") best -= 10;
     if (r.sources?.anilist) best += 5;
+    if (r.popularity) best += Math.min(50, 9 * Math.log10(r.popularity + 1));
+    if (["OVA", "ONA", "SPECIAL", "MUSIC", "TV_SHORT"].includes(r.format)) best -= 12;
+    else if (r.format === "MOVIE") best -= 3;
+    if (r.wikiRank !== void 0) best += Math.max(0, 20 - 4 * r.wikiRank);
     return best;
+  }
+  var altKeys = (r) => (r.altTitles ?? []).map(baseKey).filter(Boolean);
+  function sameWork(a, b) {
+    const ka = baseKey(a.title);
+    const kb = baseKey(b.title);
+    return ka && ka === kb || altKeys(b).includes(ka) || altKeys(a).includes(kb);
   }
   function mergeResults(lists) {
     const out = [];
     for (const r of lists.flat()) {
-      const ks = new Set(keysOf(r));
-      const hit = out.find((o) => keysOf(o).some((k) => ks.has(k)));
+      const hit = out.find((o) => sameWork(o, r));
       if (!hit) {
         out.push({ ...r, sources: { ...r.sources } });
         continue;
@@ -292,6 +326,9 @@
       hit.tmdbId ??= r.tmdbId;
       hit.tmdbType ??= r.tmdbType;
       hit.wikiTitle ??= r.wikiTitle;
+      hit.popularity ??= r.popularity;
+      hit.format ??= r.format;
+      hit.wikiRank ??= r.wikiRank;
       if (hit.kind !== "anime" && r.kind === "anime") hit.kind = "anime";
     }
     return out;
@@ -492,7 +529,7 @@
             el("p", {}, d.summary || r.description || "")
           )
         ),
-        f ? el("div", {}, group("Seasons", f.seasons, (s, i) => `S${i + 1}`), el("p", { class: "note" }, 'AniList lists each cour/part as its own entry, so a "season" here can be a part of one.'), group("Movies", f.movies), group("OVAs, specials & more", f.other)) : null,
+        f ? el("div", {}, group("Seasons", f.seasons, (s, i) => `S${i + 1}`), el("p", { class: "note" }, 'AniList lists each cour/part as its own entry, so a "season" here can be a part of one.'), group("Movies", f.movies), group("OVAs, specials & more", f.other), group("Spin-offs", f.spinoffs)) : null,
         d.tmdbSeasons ? group("TMDB seasons", d.tmdbSeasons.map((s) => ({ title: s.title, year: s.year, episodes: s.episodes })), (s, i) => String(d.tmdbSeasons[i].number)) : null,
         d.notes.length ? el("p", { class: "warn" }, d.notes.join(" | ")) : null
       ].filter(Boolean));

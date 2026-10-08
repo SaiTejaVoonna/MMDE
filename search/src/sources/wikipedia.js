@@ -1,4 +1,5 @@
 import { firstYear } from '../text.js';
+import { fetchRetry } from '../http.js';
 
 // Wikipedia search: keyless, CORS via origin=*. Natural-language friendly and follows redirects, so
 // "bahubali", "tensura" and "og telugu film" all land on the right article. One request returns
@@ -24,8 +25,10 @@ export function inferLanguage(desc) {
 export function mapWikipediaPages(pages) {
   return Object.values(pages ?? {})
     .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-    .filter((p) => WORK.test(p.description ?? ''))
-    .map((p) => ({
+    .map((p, rank) => ({ p, rank }))
+    .filter(({ p }) => WORK.test(p.description ?? ''))
+    .map(({ p, rank }) => ({
+      wikiRank: rank,
       id: `wikipedia:${p.pageid}`,
       kind: inferKind(p.description),
       title: p.title,
@@ -39,6 +42,8 @@ export function mapWikipediaPages(pages) {
     }));
 }
 
+export const retrySleep = { fn: undefined }; // tests can replace this to skip real waiting
+
 const TYPE_WORD = { movie: 'film', tv: 'television series', anime: 'anime', game: 'video game' };
 
 export async function searchWikipedia(parsed, fetchImpl) {
@@ -47,7 +52,7 @@ export async function searchWikipedia(parsed, fetchImpl) {
     action: 'query', format: 'json', origin: '*', generator: 'search', gsrsearch: q, gsrlimit: '20', gsrnamespace: '0',
     prop: 'description|pageimages', piprop: 'thumbnail', pithumbsize: '120', redirects: '1',
   });
-  const res = await fetchImpl(`${API}?${params}`);
+  const res = await fetchRetry(fetchImpl, `${API}?${params}`, undefined, { sleep: retrySleep.fn });
   if (!res.ok) throw new Error(`HTTP ${res.status} from Wikipedia`);
   const j = await res.json();
   return mapWikipediaPages(j.query?.pages);
@@ -55,7 +60,7 @@ export async function searchWikipedia(parsed, fetchImpl) {
 
 export async function getWikipediaSummary(title, fetchImpl) {
   const params = new URLSearchParams({ action: 'query', format: 'json', origin: '*', prop: 'extracts', exintro: '1', explaintext: '1', exchars: '700', titles: title, redirects: '1' });
-  const res = await fetchImpl(`${API}?${params}`);
+  const res = await fetchRetry(fetchImpl, `${API}?${params}`, undefined, { sleep: retrySleep.fn });
   if (!res.ok) throw new Error(`HTTP ${res.status} from Wikipedia`);
   const j = await res.json();
   return Object.values(j.query?.pages ?? {})[0]?.extract ?? '';

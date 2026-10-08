@@ -26,6 +26,7 @@ const lines = ['# MMDE search check', '', `Generated ${new Date().toISOString()}
 const summary = [];
 let pass = 0;
 for (const [q, what, test] of CASES) {
+  await new Promise((r) => setTimeout(r, 2500)); // stay polite: shared CI IPs get rate limited fast
   let out;
   let detail = null;
   let err = '';
@@ -38,10 +39,10 @@ for (const [q, what, test] of CASES) {
   summary.push(`| ${ok ? 'PASS' : 'FAIL'} | ${q} | ${what} | ${out.results.length} |`);
   lines.push(`## ${ok ? 'PASS' : 'FAIL'}: "${q}"`, '', `expect: ${what}`, `parsed: ${JSON.stringify({ text: out.parsed?.text, lang: out.parsed?.lang, type: out.parsed?.type })}`,
     `sources: ${out.notes.map((n) => (n.skipped ? `${n.source} off` : n.ok ? `${n.source} ${n.count}` : `${n.source} FAILED ${n.error}`)).join(' | ')}${err ? ` | ERROR ${err}` : ''}`, '');
-  out.results.slice(0, 6).forEach((r, i) => lines.push(`${i + 1}. ${r.title} (${[r.kind, r.year, r.language].filter(Boolean).join(', ')}) [${Object.keys(r.sources).join('+')}]${r.description ? ' - ' + r.description.slice(0, 90) : ''}`));
+  out.results.slice(0, 6).forEach((r, i) => lines.push(`${i + 1}. ${r.title} (${[r.kind, r.year, r.language].filter(Boolean).join(', ')}) [${Object.keys(r.sources).join('+')}]${r.popularity ? ` pop ${r.popularity}` : ''}${r.wikiRank !== undefined ? ` wikiRank ${r.wikiRank}` : ''}${r.description ? ' - ' + r.description.slice(0, 80) : ''}`));
   if (detail?.franchise) {
     const f = detail.franchise;
-    lines.push('', `seasons (${f.seasons.length}): ${f.seasons.map((s) => `${s.title} [${s.year}]`).join(' | ')}`, `movies (${f.movies.length}): ${f.movies.map((s) => s.title).join(' | ')}`, `other (${f.other.length}): ${f.other.slice(0, 8).map((s) => `${s.title} (${s.format})`).join(' | ')}`);
+    lines.push('', `seasons (${f.seasons.length}): ${f.seasons.map((s) => `${s.title} [${s.year}]`).join(' | ')}`, `movies (${f.movies.length}): ${f.movies.map((s) => s.title).join(' | ')}`, `other (${f.other.length}): ${f.other.slice(0, 8).map((s) => `${s.title} (${s.format})`).join(' | ')}`, `spin-offs (${f.spinoffs.length}): ${f.spinoffs.map((s) => s.title).join(' | ')}`);
   }
   if (detail?.notes?.length) lines.push(`detail notes: ${detail.notes.join(' | ')}`);
   lines.push('');

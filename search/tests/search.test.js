@@ -156,3 +156,80 @@ test('spelling variants still rank the right title first (bahubali vs Baahubali)
   const out = await searchAll('bahubali', { fetchImpl: async (u) => (String(u).includes('anilist') ? json({ data: { Page: { media: [] } } }) : json(pages)) });
   assert.equal(out.results[0].title, 'Baahubali: The Beginning');
 });
+
+// ---------- regressions found by the first LIVE run ----------
+import { fetchRetry } from '../src/http.js';
+import { setSleep } from '../src/sources/anilist.js';
+import { retrySleep } from '../src/sources/wikipedia.js';
+const noWait = () => Promise.resolve();
+setSleep(noWait);
+retrySleep.fn = noWait;
+
+test('fetchRetry: retries 429/503, honours Retry-After, then gives up', async () => {
+  let n = 0;
+  const waits = [];
+  const f = async () => (++n < 3 ? new Response('', { status: 429, headers: { 'retry-after': '2' } }) : new Response('ok'));
+  const res = await fetchRetry(f, 'u', undefined, { sleep: async (ms) => { waits.push(ms); } });
+  assert.equal(await res.text(), 'ok');
+  assert.deepEqual(waits, [2000, 2000]);
+  let m = 0;
+  const always = async () => { m++; return new Response('', { status: 503 }); };
+  const last = await fetchRetry(always, 'u', undefined, { retries: 2, sleep: noWait });
+  assert.equal(last.status, 503);
+  assert.equal(m, 3);
+});
+
+test('a 429 from a source is retried transparently (search still succeeds)', async () => {
+  let aniCalls = 0;
+  const f = async (u) => {
+    if (String(u).includes('anilist')) { aniCalls++; return aniCalls === 1 ? json({}, 429) : json(ANI_SEARCH); }
+    return json({ query: { pages: {} } });
+  };
+  const out = await searchAll('slime', { fetchImpl: f });
+  assert.equal(aniCalls, 2);
+  assert.ok(out.notes.find((n) => n.source === 'AniList').ok);
+});
+
+test('"slime": the famous anime outranks an obscure film literally titled "Slime (film)"', async () => {
+  const ani = { data: { Page: { media: [
+    { ...slimeMedia(101280, 'That Time I Got Reincarnated as a Slime', 'Tensei shitara Slime Datta Ken', 2018), popularity: 380000 },
+    { ...slimeMedia(900, 'Slime Boukenki', 'Slime Boukenki', 1998, 'OVA'), popularity: 300 },
+  ] } } };
+  const wiki = { query: { pages: { 1: { pageid: 1, index: 1, title: 'Slime (film)', description: 'American film' } } } };
+  const out = await searchAll('slime', { fetchImpl: async (u) => (String(u).includes('anilist') ? json(ani) : json(wiki)) });
+  assert.equal(out.results[0].title, 'That Time I Got Reincarnated as a Slime');
+});
+
+test('"tensura": the main TV series outranks a short ONA that also mentions Tensura', async () => {
+  const ani = { data: { Page: { media: [
+    { ...slimeMedia(5, 'Tensei Shitara Slime Datta Ken: Sukuwareru Ramiris', 'Sukuwareru Ramiris', 2022, 'ONA', ['Tensura']), popularity: 2000 },
+    { ...slimeMedia(101280, 'That Time I Got Reincarnated as a Slime', 'Tensei shitara Slime Datta Ken', 2018, 'TV', ['Tensura']), popularity: 380000 },
+  ] } } };
+  const out = await searchAll('tensura', { fetchImpl: async (u) => (String(u).includes('anilist') ? json(ani) : json({ query: { pages: {} } })) });
+  assert.equal(out.results[0].title, 'That Time I Got Reincarnated as a Slime');
+});
+
+test('"bahubali": the film (Wikipedia rank 1, first-word match) beats "Bindiya Ke Bahubali"', async () => {
+  const wiki = { query: { pages: {
+    1: { pageid: 1, index: 1, title: 'Baahubali: The Beginning', description: '2015 Indian film by S. S. Rajamouli' },
+    2: { pageid: 2, index: 2, title: 'Bindiya Ke Bahubali (TV series)', description: '2025 Indian TV series' },
+  } } };
+  const out = await searchAll('bahubali', { fetchImpl: async (u) => (String(u).includes('anilist') ? json({ data: { Page: { media: [] } } }) : json(wiki)) });
+  assert.equal(out.results[0].title, 'Baahubali: The Beginning');
+});
+
+test('franchise also lists movies/OVAs linked as side story or spin-off, and TV spin-offs separately', async () => {
+  const mk = (id, fmt, year, title) => ({ id, type: 'ANIME', title: { romaji: title, english: title }, format: fmt, episodes: 12, status: 'FINISHED', startDate: { year, month: 1, day: 1 }, coverImage: { medium: null } });
+  const S1 = mk(1, 'TV', 2018, 'S1'), MOV = mk(5, 'MOVIE', 2022, 'Scarlet Bond'), DIARIES = mk(7, 'TV', 2021, 'Slime Diaries'), RECAP = mk(8, 'SPECIAL', 2019, 'Recap');
+  const f = async (_u, init) => {
+    const ids = JSON.parse(init.body).variables.ids;
+    return json({ data: { Page: { media: ids.filter((i) => i === 1).map(() => ({ ...S1, relations: { edges: [
+      { relationType: 'SPIN_OFF', node: MOV }, { relationType: 'SPIN_OFF', node: DIARIES }, { relationType: 'SUMMARY', node: RECAP },
+    ] } })) } } });
+  };
+  const fr = await getAniListFranchise(1, f);
+  assert.deepEqual(fr.seasons.map((x) => x.title), ['S1']);
+  assert.deepEqual(fr.movies.map((x) => x.title), ['Scarlet Bond']);
+  assert.deepEqual(fr.spinoffs.map((x) => x.title), ['Slime Diaries']);
+  assert.deepEqual(fr.other, [], 'recaps (SUMMARY) are not listed');
+});

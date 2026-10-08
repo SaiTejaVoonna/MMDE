@@ -82,7 +82,7 @@ export function mount(root) {
         el('div', {}, el('h2', {}, r.title), el('div', { class: 'sub' }, [LABEL[r.kind] || r.kind, r.year, r.language].filter(Boolean).join(' · ')),
           r.altTitles?.length ? el('div', { class: 'sub' }, 'Also: ' + r.altTitles.slice(0, 5).join(' · ')) : null,
           el('p', {}, d.summary || r.description || ''))),
-      f ? el('div', {}, group('Seasons', f.seasons, (s, i) => `S${i + 1}`), el('p', { class: 'note' }, 'AniList lists each cour/part as its own entry, so a "season" here can be a part of one.'), group('Movies', f.movies), group('OVAs, specials & more', f.other)) : null,
+      f ? el('div', {}, group('Seasons', f.seasons, (s, i) => `S${i + 1}`), el('p', { class: 'note' }, 'AniList lists each cour/part as its own entry, so a "season" here can be a part of one.'), group('Movies', f.movies), group('OVAs, specials & more', f.other), group('Spin-offs', f.spinoffs)) : null,
       d.tmdbSeasons ? group('TMDB seasons', d.tmdbSeasons.map((s) => ({ title: s.title, year: s.year, episodes: s.episodes })), (s, i) => String(d.tmdbSeasons[i].number)) : null,
       d.notes.length ? el('p', { class: 'warn' }, d.notes.join(' | ')) : null].filter(Boolean));
   }
