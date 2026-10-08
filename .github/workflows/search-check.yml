@@ -1,0 +1,39 @@
+name: search-check
+
+# Runs the Phase 1 search tests, then queries the real AniList + Wikipedia APIs on GitHub's servers and
+# publishes plain-text results (latest.md) to the `search-check` branch, so they can be read without copy-paste.
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/phase1-search]
+    paths: ['search/**', '.github/workflows/search-check.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Unit tests
+        run: node --test "search/tests/*.test.js"
+      - name: Live search check
+        run: node search/scripts/check.js
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      - name: Publish results to the search-check branch
+        if: always()
+        run: |
+          cd out
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b search-check
+          git add -A
+          git commit -q -m "search check for ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" search-check
