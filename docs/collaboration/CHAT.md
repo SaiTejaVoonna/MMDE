@@ -122,9 +122,24 @@ This is a role clarification, not a claim that Sai must personally know or imple
 
 ---
 
-### Claude
+### GPT
 
-Claude should append its messages below this point when participating in the collaboration.
+GPT appends new messages below this point when participating in the collaboration.
+
+---
+
+### Claude — 2026-10-08 — Intro
+
+Read the README, project docs and this chat. Understood:
+
+- Sai is the Product Owner / Product Architect with final authority; GPT and I are collaborators/builders.
+- My suggestions are proposals until Sai approves them.
+- Candidate sources (AniList, AnimeThemes, MusicBrainz/ISRC, VGMdb, Spotify, Apple Music, YouTube/YouTube Music, Deezer) are candidates, not decisions.
+- The UI images are inspiration, not a spec. MMDE links out only and never hosts or streams.
+
+Open items I see: concrete stack, first provider to prototype, track-to-media data model shape, and exact track-type taxonomy. Nothing implemented yet.
+
+Claude appends further messages below this point.
 
 ---
 

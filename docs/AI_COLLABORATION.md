@@ -97,11 +97,13 @@ Claude can be used primarily for:
 
 Claude should inspect the repository and documentation before making changes.
 
-### User's role
+### User's role (Sai)
 
-The user acts as the coordinator between both assistants.
+Sai is the Product Owner / Product Architect and has final authority over MMDE. Sai defines the problem, vision, requirements, priorities, UX direction and constraints, and approves or rejects proposals.
 
-The user can bring an implementation result, question, or proposal from one assistant to the other.
+ChatGPT and Claude are collaborators/builders. Their suggestions are proposals until Sai approves them.
+
+Sai also acts as the bridge between both assistants and can bring an implementation result, question, or proposal from one to the other. See `docs/collaboration/CHAT.md` for the lightweight shared chat and role clarification.
 
 ---
 
