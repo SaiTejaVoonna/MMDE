@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { diagnoseTitle } from '../src/app/diagnose.ts';
 import { deezerResolver } from '../src/links/platforms.ts';
 import { aniListResolver } from '../src/providers/anilist.ts';
+import { animeThemesProvider } from '../src/providers/animethemes.ts';
 import { curatedProvider } from '../src/providers/curated.ts';
 import { musicBrainzResolver } from '../src/providers/musicbrainz.ts';
 import { loadSeeds, seedMediaResolver } from '../src/providers/seeds.ts';
@@ -24,6 +25,7 @@ const providers = seeds.map((s) => curatedProvider(s));
 const mediaResolvers = [seedMediaResolver(seeds)];
 if (!offline) {
   mediaResolvers.push(aniListResolver());
+  providers.push(animeThemesProvider());
   if (process.env.ANTHROPIC_API_KEY) providers.push(wikiLlmProvider({ complete: anthropicComplete(process.env.ANTHROPIC_API_KEY, process.env.MMDE_MODEL), userAgent: ua }));
 }
 const run = { providers, recordingResolver: offline ? undefined : musicBrainzResolver(ua), linkResolvers: offline ? [] : [deezerResolver()] };
