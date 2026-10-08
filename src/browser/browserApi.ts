@@ -1,5 +1,6 @@
 import type { DiscoveryResult, Media } from '../domain/types.ts';
 import { organize } from '../app/organize.ts';
+import { mergeMediaResults } from '../app/media.ts';
 import { aniListResolver } from '../providers/anilist.ts';
 import { animeThemesProvider } from '../providers/animethemes.ts';
 import { curatedProvider, type SeedFile } from '../providers/curated.ts';
@@ -40,16 +41,11 @@ export function createBrowserApi(opts: { seeds: SeedFile[]; fetchImpl?: typeof f
       if (st.live) resolvers.push(aniListResolver(f));
       const results: Media[] = [];
       const errors: string[] = [];
-      const seen = new Set<string>();
       for (const r of resolvers) {
-        try {
-          for (const m of await r.search(q)) {
-            const k = normalizeTitle(m.title);
-            if (!seen.has(k)) { seen.add(k); results.push(m); }
-          }
-        } catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
+        try { results.push(...await r.search(q)); }
+        catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
       }
-      return { results, errors, sources: resolvers.map((r) => r.name) };
+      return { results: mergeMediaResults(results), errors, sources: resolvers.map((r) => r.name) };
     },
     async getResult(id) {
       const r = memory.get(id) ?? readResults()[id];
