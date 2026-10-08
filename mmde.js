@@ -132,80 +132,56 @@
     return out;
   }
 
-  // src/matching/normalize.ts
-  var VERSION_PATTERNS = [
-    ["tv_size", /\b(tv[\s-]?size|tv[\s-]?ver(?:sion)?|anime[\s-]?size|short[\s-]?ver(?:sion)?)\b/i],
-    ["instrumental", /\b(instrumental|karaoke|off[\s-]?vocal)\b/i],
-    ["live", /\blive\b/i],
-    ["remix", /\b(remix|re[\s-]?mix|mixed by)\b/i],
-    ["cover", /\b(cover|tribute|originally performed)\b/i],
-    ["rerecording", /\b(re[\s-]?record(?:ed|ing)?|new recording)\b/i],
-    ["full", /\b(full[\s-]?(?:size|ver(?:sion)?)|album ver(?:sion)?|extended)\b/i]
-  ];
-  function classifyVersion(title, disambiguation = "") {
-    const text = `${title} ${disambiguation}`;
-    for (const [kind, re] of VERSION_PATTERNS) if (re.test(text)) return kind;
-    return "original";
+  // src/providers/tmdb.ts
+  function authHeaders(token) {
+    return { Accept: "application/json", Authorization: `Bearer ${token}` };
   }
-  function normalizeTitle(title) {
-    let t = title.normalize("NFKC").toLowerCase();
-    t = t.replace(/[(\[（][^)\]）]*[)\]）]/g, " ");
-    t = t.replace(/\s[-–—]\s.*$/, " ");
-    t = t.replace(/[^\p{L}\p{N}\s]/gu, " ");
-    return t.replace(/\s+/g, " ").trim();
+  function mapResult(m, type) {
+    const title = type === "tv" ? m.name ?? m.original_name ?? String(m.id) : m.title ?? m.original_title ?? String(m.id);
+    const date = type === "tv" ? m.first_air_date : m.release_date;
+    return {
+      id: `tmdb-${type}-${m.id}`,
+      type,
+      title,
+      altTitles: [type === "tv" ? m.original_name : m.original_title].filter((x) => !!x && x !== title),
+      year: date ? Number(date.slice(0, 4)) : void 0,
+      externalIds: { tmdb: String(m.id), tmdbType: type }
+    };
   }
-  function normalizeArtist(name) {
-    return name.normalize("NFKC").toLowerCase().replace(/\b(feat\.?|ft\.?|featuring)\b.*$/, " ").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
-  }
-  function levenshtein(a, b) {
-    if (a === b) return 0;
-    const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-    for (let i = 1; i <= a.length; i++) {
-      let diag = prev[0];
-      prev[0] = i;
-      for (let j = 1; j <= b.length; j++) {
-        const tmp = prev[j];
-        prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
-        diag = tmp;
+  function tmdbResolver(token, fetchImpl = fetch) {
+    return {
+      name: "tmdb",
+      async search(query) {
+        const encoded = encodeURIComponent(query);
+        const [tvRes, movieRes] = await Promise.all([
+          fetchImpl(`https://api.themoviedb.org/3/search/tv?query=${encoded}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) }),
+          fetchImpl(`https://api.themoviedb.org/3/search/movie?query=${encoded}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) })
+        ]);
+        if (!tvRes.ok) throw new Error(`HTTP ${tvRes.status} from TMDB TV search`);
+        if (!movieRes.ok) throw new Error(`HTTP ${movieRes.status} from TMDB movie search`);
+        const tv = await tvRes.json();
+        const movies = await movieRes.json();
+        return [
+          ...(tv.results ?? []).slice(0, 8).map((m) => mapResult(m, "tv")),
+          ...(movies.results ?? []).slice(0, 5).map((m) => mapResult(m, "movie"))
+        ];
       }
-    }
-    return prev[b.length];
+    };
   }
-  function sameArtist(a, b) {
-    if (similarity(a, b) >= 0.85) return true;
-    const ta = a.split(" ").sort().join(" ");
-    const tb = b.split(" ").sort().join(" ");
-    return ta.length > 0 && similarity(ta, tb) >= 0.9;
-  }
-  function similarity(a, b) {
-    if (!a && !b) return 1;
-    if (!a || !b) return 0;
-    return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
-  }
-
-  // src/app/media.ts
-  function mergeMediaResults(results) {
-    const byTitle = /* @__PURE__ */ new Map();
-    for (const media of results) {
-      const key = normalizeTitle(media.title);
-      if (!key) continue;
-      const existing = byTitle.get(key);
-      if (!existing) {
-        byTitle.set(key, { ...media, altTitles: [...new Set(media.altTitles)] });
-        continue;
-      }
-      const related = [...existing.relatedMedia ?? [], ...media.relatedMedia ?? []];
-      const relatedById = new Map(related.map((m) => [m.id, m]));
-      byTitle.set(key, {
-        ...existing,
-        altTitles: [.../* @__PURE__ */ new Set([...existing.altTitles, ...media.altTitles])],
-        externalIds: { ...existing.externalIds, ...media.externalIds },
-        year: existing.year ?? media.year,
-        partRef: existing.partRef ?? media.partRef,
-        relatedMedia: relatedById.size ? [...relatedById.values()] : void 0
-      });
-    }
-    return [...byTitle.values()];
+  async function tmdbSeasons(media, token, fetchImpl = fetch) {
+    if (media.externalIds.tmdbType !== "tv") return [];
+    const id = media.externalIds.tmdb;
+    if (!id) return [];
+    const res = await fetchImpl(`https://api.themoviedb.org/3/tv/${encodeURIComponent(id)}?language=en-US`, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status} from TMDB TV details`);
+    const data = await res.json();
+    return (data.seasons ?? []).filter((s) => s.season_number >= 0).map((s) => ({
+      seasonNumber: s.season_number,
+      name: s.name,
+      airDate: s.air_date ?? void 0,
+      episodeCount: s.episode_count,
+      posterPath: s.poster_path ?? void 0
+    }));
   }
 
   // src/providers/types.ts
@@ -216,236 +192,6 @@
       const at = Math.max(now, next);
       next = at + intervalMs;
       if (at > now) await new Promise((r) => setTimeout(r, at - now));
-    };
-  }
-
-  // src/providers/anilist.ts
-  var QUERY = `query ($q: String) { Page(perPage: 8) { media(search: $q, type: ANIME) {
-  id idMal seasonYear format
-  title { romaji english native }
-  synonyms
-  relations {
-    edges {
-      relationType
-      node {
-        id idMal seasonYear format
-        title { romaji english native }
-        synonyms
-      }
-    }
-  }
-} } }`;
-  var MANGA_QUERY = `query ($q: String) { Page(perPage: 5) { media(search: $q, type: MANGA) {
-  id format title { romaji english native } synonyms
-  relations { edges { relationType node { id idMal seasonYear format title { romaji english native } synonyms } } }
-} } }`;
-  function inferPart(title, format) {
-    const text = [title.english, title.romaji, title.native].filter(Boolean).join(" ");
-    if (format === "MOVIE") return { kind: "movie" };
-    if (format === "OVA") return { kind: "ova" };
-    if (format === "SPECIAL" || format === "ONA") return { kind: "special" };
-    const patterns = [
-      /(?:season|part)\s*(\d+)/i,
-      /\b(\d+)(?:st|nd|rd|th)\s+season\b/i,
-      /\bcour\s*(\d+)\b/i
-    ];
-    for (const p of patterns) {
-      const m = text.match(p);
-      if (m) return { kind: "season", number: Number(m[1]) };
-    }
-    return { kind: "whole" };
-  }
-  function toMedia(m, relationType) {
-    const title = m.title.english ?? m.title.romaji ?? m.title.native ?? String(m.id);
-    return {
-      id: `anilist-${m.id}`,
-      type: "anime",
-      title,
-      altTitles: [m.title.romaji, m.title.native, ...m.synonyms ?? []].filter((x) => !!x),
-      year: m.seasonYear ?? void 0,
-      externalIds: { anilist: String(m.id), ...m.idMal ? { mal: String(m.idMal) } : {} },
-      partRef: inferPart(m.title, m.format),
-      ...relationType ? { relationType } : {}
-    };
-  }
-  function likelySameFranchise(root, candidate) {
-    const roots = [root.title, ...root.altTitles].map(normalizeTitle).filter((x) => x.length >= 10);
-    const candidates = [candidate.title, ...candidate.altTitles].map(normalizeTitle).filter(Boolean);
-    return roots.some((r) => candidates.some((c) => c.includes(r) || r.includes(c)));
-  }
-  function sourceAnimeRelations(root, manga) {
-    const animeFormats = /* @__PURE__ */ new Set(["TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA"]);
-    const out = [];
-    for (const edge of manga.relations?.edges ?? []) {
-      if (edge.relationType !== "ADAPTATION" || !edge.node || !animeFormats.has(edge.node.format ?? "")) continue;
-      const candidate = toMedia(edge.node, "SOURCE_ADAPTATION");
-      if (candidate.id !== root.id && likelySameFranchise(root, candidate)) out.push(candidate);
-    }
-    return out;
-  }
-  function franchiseRelations(m) {
-    const edges = m.relations?.edges ?? [];
-    const allowed = /* @__PURE__ */ new Set(["PREQUEL", "SEQUEL", "PARENT", "SIDE_STORY", "SPIN_OFF", "OTHER", "ADAPTATION"]);
-    const seen = /* @__PURE__ */ new Set();
-    const out = [];
-    for (const edge of edges) {
-      const node = edge.node;
-      if (!node || !edge.relationType || !allowed.has(edge.relationType)) continue;
-      const child = toMedia(node, edge.relationType);
-      if (child.id === `anilist-${m.id}` || seen.has(child.id)) continue;
-      seen.add(child.id);
-      out.push(child);
-    }
-    return out;
-  }
-  function aniListResolver(fetchImpl = fetch) {
-    const wait = createRateLimiter(1e3);
-    return {
-      name: "anilist",
-      async search(query) {
-        const request = async (q, perPage = 8) => {
-          await wait();
-          const res = await fetchImpl("https://graphql.anilist.co", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify({ query: perPage === 8 ? QUERY : QUERY.replace("Page(perPage: 8)", `Page(perPage: ${perPage})`), variables: { q } })
-          });
-          if (!res.ok) throw new Error(`HTTP ${res.status} from AniList`);
-          const data = await res.json();
-          return data.data?.Page?.media ?? [];
-        };
-        const initial = await request(query);
-        if (!initial.length) return [];
-        const root = toMedia(initial[0]);
-        const related = franchiseRelations(initial[0]);
-        const exact = initial[0].title.romaji ? await request(initial[0].title.romaji, 20) : [];
-        const seen = new Set(related.map((m) => m.id));
-        for (const node of exact) {
-          if (node.id === initial[0].id) continue;
-          const candidate = toMedia(node, "TITLE_SEARCH");
-          if (seen.has(candidate.id) || !likelySameFranchise(root, candidate)) continue;
-          seen.add(candidate.id);
-          related.push(candidate);
-        }
-        if (initial[0].title.romaji && inferPart(initial[0].title).kind === "whole") {
-          const base = initial[0].title.romaji;
-          const variantQueries = [
-            ...Array.from({ length: 7 }, (_, i) => {
-              const n = i + 2;
-              const suffix = n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th";
-              return `${base} ${n}${suffix} Season`;
-            }),
-            `${base} Movie`
-          ];
-          for (const q of variantQueries) {
-            const variants = await request(q);
-            for (const node of variants) {
-              const candidate = toMedia(node, "TITLE_VARIANT");
-              if (candidate.id !== root.id && !seen.has(candidate.id) && likelySameFranchise(root, candidate)) {
-                seen.add(candidate.id);
-                related.push(candidate);
-              }
-            }
-          }
-        }
-        if (initial[0].title.romaji) {
-          const sourceRes = await fetchImpl("https://graphql.anilist.co", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify({ query: MANGA_QUERY, variables: { q: initial[0].title.romaji } })
-          });
-          if (sourceRes.ok) {
-            const sourceData = await sourceRes.json();
-            const source = (sourceData.data?.Page?.media ?? []).map((m) => toMedia(m)).find((m) => likelySameFranchise(root, m));
-            const sourceRaw = (sourceData.data?.Page?.media ?? []).find((m) => source && `anilist-${m.id}` === source.id);
-            if (sourceRaw) {
-              for (const candidate of sourceAnimeRelations(root, sourceRaw)) {
-                if (!seen.has(candidate.id)) {
-                  seen.add(candidate.id);
-                  related.push(candidate);
-                }
-              }
-            }
-          }
-        }
-        return initial.map((m) => {
-          const media = toMedia(m);
-          if (m.id !== initial[0].id) return media;
-          return related.length ? { ...media, relatedMedia: related } : media;
-        });
-      }
-    };
-  }
-
-  // src/providers/jikan.ts
-  function partKind(type) {
-    if (type === "Movie") return { kind: "movie" };
-    if (type === "OVA") return { kind: "ova" };
-    if (type === "Special" || type === "ONA") return { kind: "special" };
-    return { kind: "whole" };
-  }
-  function jikanResolver(fetchImpl = fetch) {
-    const wait = createRateLimiter(900);
-    return {
-      name: "jikan",
-      async search(query) {
-        const q = query.trim();
-        if (!q) return [];
-        await wait();
-        const url = new URL("https://api.jikan.moe/v4/anime");
-        url.searchParams.set("q", q);
-        url.searchParams.set("limit", "12");
-        url.searchParams.set("sfw", "true");
-        const res = await fetchImpl(url, { headers: { Accept: "application/json" } });
-        if (!res.ok) throw new Error(`HTTP ${res.status} from Jikan`);
-        const data = await res.json();
-        return (data.data ?? []).map((m) => ({
-          id: `mal-${m.mal_id}`,
-          type: "anime",
-          title: m.title_english || m.title || m.title_japanese || String(m.mal_id),
-          altTitles: [m.title, m.title_english ?? void 0, m.title_japanese ?? void 0, ...m.title_synonyms ?? []].filter((x) => !!x),
-          year: m.year ?? (m.aired?.from ? Number(m.aired.from.slice(0, 4)) : void 0),
-          externalIds: { mal: String(m.mal_id), ...m.url ? { malUrl: m.url } : {} },
-          partRef: partKind(m.type)
-        }));
-      }
-    };
-  }
-
-  // src/providers/wikipedia.ts
-  function mediaType(title, snippet) {
-    const text = `${title} ${snippet}`.toLowerCase();
-    if (/\b(anime|manga)\b/.test(text)) return "anime";
-    if (/\b(tv series|television series|television show|tv show|series)\b/.test(text)) return "tv";
-    if (/\b(film|movie)\b/.test(text)) return "movie";
-    return "other";
-  }
-  function wikipediaResolver(fetchImpl = fetch) {
-    const wait = createRateLimiter(500);
-    return {
-      name: "wikipedia",
-      async search(query) {
-        const q = query.trim();
-        if (!q) return [];
-        await wait();
-        const url = new URL("https://en.wikipedia.org/w/api.php");
-        url.searchParams.set("action", "query");
-        url.searchParams.set("list", "search");
-        url.searchParams.set("srsearch", q);
-        url.searchParams.set("srlimit", "8");
-        url.searchParams.set("format", "json");
-        url.searchParams.set("origin", "*");
-        const res = await fetchImpl(url, { headers: { Accept: "application/json" } });
-        if (!res.ok) throw new Error(`HTTP ${res.status} from Wikipedia`);
-        const data = await res.json();
-        return (data.query?.search ?? []).map((row) => ({
-          id: `wikipedia-${row.pageid}`,
-          type: mediaType(row.title, row.snippet),
-          title: row.title,
-          altTitles: [],
-          externalIds: { wikipedia: String(row.pageid) }
-        }));
-      }
     };
   }
 
@@ -525,6 +271,57 @@
         return out;
       }
     };
+  }
+
+  // src/matching/normalize.ts
+  var VERSION_PATTERNS = [
+    ["tv_size", /\b(tv[\s-]?size|tv[\s-]?ver(?:sion)?|anime[\s-]?size|short[\s-]?ver(?:sion)?)\b/i],
+    ["instrumental", /\b(instrumental|karaoke|off[\s-]?vocal)\b/i],
+    ["live", /\blive\b/i],
+    ["remix", /\b(remix|re[\s-]?mix|mixed by)\b/i],
+    ["cover", /\b(cover|tribute|originally performed)\b/i],
+    ["rerecording", /\b(re[\s-]?record(?:ed|ing)?|new recording)\b/i],
+    ["full", /\b(full[\s-]?(?:size|ver(?:sion)?)|album ver(?:sion)?|extended)\b/i]
+  ];
+  function classifyVersion(title, disambiguation = "") {
+    const text = `${title} ${disambiguation}`;
+    for (const [kind, re] of VERSION_PATTERNS) if (re.test(text)) return kind;
+    return "original";
+  }
+  function normalizeTitle(title) {
+    let t = title.normalize("NFKC").toLowerCase();
+    t = t.replace(/[(\[（][^)\]）]*[)\]）]/g, " ");
+    t = t.replace(/\s[-–—]\s.*$/, " ");
+    t = t.replace(/[^\p{L}\p{N}\s]/gu, " ");
+    return t.replace(/\s+/g, " ").trim();
+  }
+  function normalizeArtist(name) {
+    return name.normalize("NFKC").toLowerCase().replace(/\b(feat\.?|ft\.?|featuring)\b.*$/, " ").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  }
+  function levenshtein(a, b) {
+    if (a === b) return 0;
+    const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      let diag = prev[0];
+      prev[0] = i;
+      for (let j = 1; j <= b.length; j++) {
+        const tmp = prev[j];
+        prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+        diag = tmp;
+      }
+    }
+    return prev[b.length];
+  }
+  function sameArtist(a, b) {
+    if (similarity(a, b) >= 0.85) return true;
+    const ta = a.split(" ").sort().join(" ");
+    const tb = b.split(" ").sort().join(" ");
+    return ta.length > 0 && similarity(ta, tb) >= 0.9;
+  }
+  function similarity(a, b) {
+    if (!a && !b) return 1;
+    if (!a || !b) return 0;
+    return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
   }
 
   // src/providers/curated.ts
@@ -942,9 +739,9 @@ ${text}`;
     const f = opts.fetchImpl ?? ((...a) => fetch(...a));
     const readSettings = () => {
       try {
-        return { live: true, anthropicKey: "", ...JSON.parse(store?.getItem(SETTINGS_KEY) ?? "{}") };
+        return { live: true, anthropicKey: "", tmdbToken: "", ...JSON.parse(store?.getItem(SETTINGS_KEY) ?? "{}") };
       } catch {
-        return { live: true, anthropicKey: "" };
+        return { live: true, anthropicKey: "", tmdbToken: "" };
       }
     };
     const readResults = () => {
@@ -965,32 +762,26 @@ ${text}`;
       } },
       async search(q) {
         const st = readSettings();
-        const resolvers = [seedMediaResolver(opts.seeds)];
-        if (st.live) resolvers.push(aniListResolver(f), jikanResolver(f), wikipediaResolver(f));
-        const results = [];
         const errors = [];
-        for (const r of resolvers) {
+        if (st.tmdbToken) {
           try {
-            results.push(...await r.search(q));
+            const results2 = await tmdbResolver(st.tmdbToken, f).search(q);
+            return { results: results2, errors, sources: ["tmdb"] };
           } catch (e) {
-            errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`);
+            errors.push(`tmdb: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
-        let merged = mergeMediaResults(results);
-        const canonical = merged[0];
-        const anilist = resolvers.find((r) => r.name === "anilist");
-        if (canonical && anilist) {
-          try {
-            merged = mergeMediaResults([...merged, ...await anilist.search(canonical.title)]);
-          } catch (e) {
-            errors.push(`anilist enrichment: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        }
-        return { results: merged, errors, sources: resolvers.map((r) => r.name) };
+        const results = await seedMediaResolver(opts.seeds).search(q);
+        return { results, errors, sources: ["local"] };
       },
       async getResult(id) {
         const r = memory.get(id) ?? readResults()[id];
         return r ? view(r) : null;
+      },
+      async getSeasons(media) {
+        const st = readSettings();
+        if (!st.tmdbToken) return [];
+        return tmdbSeasons(media, st.tmdbToken, f);
       },
       async discover(media, onJob) {
         const st = readSettings();
