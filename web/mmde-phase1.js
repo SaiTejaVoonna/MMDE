@@ -155,7 +155,7 @@
     const body = el('div', {});
     const card = el('div', { class: 'card' }, el('h3', {}, 'Soundtrack'), body);
     const token = viewToken;
-    body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Collecting from Wikipedia, Apple Music and Deezer... (the first time can take up to 20 seconds)')));
+    body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Collecting from Wikipedia, Apple Music and Deezer... (the first time can take up to a minute for big films)')));
     const film = { id: d.id, title: d.title, kind: d.kind, year: d.year, posterPath: d.posterPath };
     const yt = el('a', { href: safeUrl(searchLink('youtube', d.title + ' ' + (d.year || '') + ' soundtrack')), target: '_blank', rel: 'noopener noreferrer' }, 'Search YouTube for the ' + d.title + ' soundtrack');
     call('/api/soundtrack-merged?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '')).then((m) => {

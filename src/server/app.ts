@@ -38,7 +38,7 @@ export interface AppDeps extends Deps {
   /** Per-track Apple Music / Deezer match. Absent = 503. */
   trackLinks?: (q: TrackQuery) => Promise<TrackLinksResult>;
   /** Apple Music / Deezer albums and playlists named after a film (fallback when Wikipedia has no tracklist). */
-  albums?: (title: string, year?: number) => Promise<CatalogAlbum[]>;
+  albums?: (title: string, year?: number, extraNames?: string[]) => Promise<CatalogAlbum[]>;
   albumTracks?: (platform: CatalogPlatform, id: string) => Promise<CatalogTrack[]>;
 }
 

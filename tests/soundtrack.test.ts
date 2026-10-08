@@ -195,3 +195,46 @@ test('isFilmPlaylist: a numbered sequel may drop its subtitle, a bare franchise 
   assert.equal(isFilmPlaylist('Baahubali 2: The Conclusion', 'Baahubali 2 songs'), true);
   assert.equal(isFilmPlaylist('Star Wars: The Force Awakens', 'Star Wars playlist'), false);
 });
+
+import { extraAlbumNames } from '../src/providers/catalogAlbums.ts';
+import { buildMergedSoundtrack } from '../src/app/soundtrackService.ts';
+test('extraAlbumNames: album titles from Wikipedia section names, volume suffix dropped, generic labels ignored', () => {
+  assert.deepEqual(extraAlbumNames(['Telugu', 'Telugu · Extended Soundtrack', 'Background score', 'Background score · Baahubali (Original Soundtrack) - Volume 1', 'Background score · Baahubali (Original Soundtrack) - Volume 10']), ['Baahubali (Original Soundtrack)']);
+  assert.deepEqual(extraAlbumNames(['Hindi', 'Tamil']), []);
+});
+
+test('catalogResolver + service: albums named by Wikipedia ("... - Volume N") are found even though they lack the film title', async () => {
+  const seen: string[] = [];
+  const f = (async (u: string) => {
+    const url = new URL(String(u)); const term = url.searchParams.get('term') ?? url.searchParams.get('q') ?? '';
+    seen.push(url.hostname + url.pathname + ':' + term);
+    const body = (o: unknown) => new Response(JSON.stringify(o), { status: 200 });
+    if (url.pathname === '/search' && url.searchParams.get('entity') === 'album') {
+      if (/volume|original soundtrack/i.test(term) && !/conclusion/i.test(term)) return body({ results: [
+        { collectionId: 201, collectionName: 'Baahubali (Original Soundtrack) - Volume 2', artistName: 'M. M. Keeravani', trackCount: 5, collectionViewUrl: 'https://music.apple.com/a/201' },
+        { collectionId: 200, collectionName: 'Baahubali (Original Soundtrack) - Volume 1', artistName: 'M. M. Keeravani', trackCount: 6, collectionViewUrl: 'https://music.apple.com/a/200' },
+        { collectionId: 299, collectionName: 'Baahubali (Hindi) Greatest Hits', artistName: 'X', trackCount: 9, collectionViewUrl: 'https://music.apple.com/a/299' } ] });
+      return body({ results: [] });
+    }
+    if (url.pathname === '/lookup') return body({ results: [{ wrapperType: 'collection' }, { wrapperType: 'track', trackNumber: 1, trackName: url.searchParams.get('id') === '200' ? 'Mahishmati Theme' : 'Palace Intrigue', artistName: 'M. M. Keeravani', trackViewUrl: 'https://music.apple.com/t/' + url.searchParams.get('id'), trackId: 1 }] });
+    return body({ data: [] });
+  }) as unknown as typeof fetch;
+  const wikiSrc = { page: { title: 'Baahubali 2: The Conclusion (soundtrack)', url: 'https://en.wikipedia.org/wiki/x' }, pageKind: 'soundtrack' as const, license: 'CC BY-SA 4.0' as const, sections: [
+    { name: 'Telugu', tracks: [{ no: 1, title: 'Saahore Baahubali', artists: [], lyricists: [] }] },
+    { name: 'Background score · Baahubali (Original Soundtrack) - Volume 1', tracks: [{ no: 1, title: 'Mahishmati Theme', artists: [], lyricists: [] }] },
+    { name: 'Background score · Baahubali (Original Soundtrack) - Volume 2', tracks: [{ no: 1, title: 'Palace Intrigue', artists: [], lyricists: [] }] } ] };
+  const c = catalogResolver('t', f);
+  const m = await buildMergedSoundtrack({ wiki: async () => wikiSrc, albums: (t, y, x) => c.findAlbums(t, y, x), albumTracks: (p, id) => c.tracks(p, id) }, 'Bāhubali 2: The Conclusion', 2017);
+  assert.deepEqual(m.albums.filter((a) => a.viaWiki).map((a) => a.name), ['Baahubali (Original Soundtrack) - Volume 1', 'Baahubali (Original Soundtrack) - Volume 2'], 'natural order, "Greatest Hits" rejected');
+  const volumes = m.sections.filter((s) => s.name.includes('Volume')).flatMap((s) => s.tracks);
+  assert.deepEqual(volumes.map((t) => t.confidence), ['green', 'green'], 'Wikipedia + the named Apple album agree');
+  assert.ok(seen.some((x) => x.includes('Baahubali (Original Soundtrack)')), 'searched the Wikipedia-named album');
+});
+
+import { matchesWikiAlbum } from '../src/providers/catalogAlbums.ts';
+test('matchesWikiAlbum: real Apple names for the Baahubali score volumes match; first-film and unrelated albums do not', () => {
+  const base = 'Baahubali (Original Soundtrack)';
+  for (const n of ['Baahubali Ost - Volume 3 (Original Motion Picture Soundtrack)', 'Baahubali Ost - Volume 10 (Original Motion Picture Soundtrack)', 'Baahubali Ost - Volume 9 (Original Motion Picture Soundtrack) - Single', 'Baahubali (Original Soundtrack) - Volume 1']) assert.equal(matchesWikiAlbum(base, n), true, n);
+  for (const n of ['Baahubali - The Beginning (Original Motion Picture Soundtrack)', 'Padmaavat (Original Motion Picture Soundtrack)', 'Baahubali - Single', 'Srii Bharatha Baahubali (Original Motion Picture Soundtrack)']) assert.equal(matchesWikiAlbum(base, n), false, n);
+  assert.equal(matchesWikiAlbum('Some Film (Original Soundtrack)', 'Some Film (Original Soundtrack)'), true, 'whole-name match still works without volumes');
+});
