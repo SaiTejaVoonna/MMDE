@@ -42,7 +42,7 @@ jobs:
           # generated diff before switching to the deployment branch.
           git reset --hard HEAD
           git checkout gh-pages
-          find . -maxdepth 1 ! -name .git ! -name .nojekyll -exec rm -rf {} +
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name .nojekyll -exec rm -rf {} +
           cp -R /tmp/mmde-pages/. .
           touch .nojekyll
           git add -A
