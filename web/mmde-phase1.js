@@ -42,12 +42,13 @@
     : el('div', { class: (cls || 'poster') + ' noposter' }, '?');
   const mins = (n) => (n ? Math.floor(n / 60) + 'h ' + (n % 60) + 'm' : '');
   const chips = (list) => el('div', { class: 'meta' }, list.filter(Boolean).map((t) => el('span', { class: 'tag' }, t)));
-  const filmGrid = (parts, currentId) => el('div', { class: 'postergrid' }, parts.map((p, i) =>
-    el('button', { type: 'button', class: 'pcard' + (p.id === currentId ? ' current' : ''), onclick: () => showDetails({ id: p.id, type: 'movie', title: p.title }) },
+  // Chronological timeline: a line with a year marker above each poster, oldest first.
+  const filmGrid = (parts, currentId) => el('div', { class: 'tl' }, parts.map((p, i) =>
+    el('button', { type: 'button', class: 'pcard tlitem' + (p.id === currentId ? ' current' : ''), onclick: () => showDetails({ id: p.id, type: 'movie', title: p.title }) },
+      el('span', { class: 'tlyear' }, String(p.year || 'TBA')),
       poster(p.posterPath, 'w342'),
       el('strong', {}, (i + 1) + '. ' + p.title),
-      el('small', {}, (p.year || 'TBA') + (p.id === currentId ? ' · you are here' : ''))
-    )));
+      el('small', {}, p.id === currentId ? 'you are here' : (p.releaseDate || '')))));
 
   // ---- Your library: followed titles and favorite songs. Saved in this browser only (browser storage); nothing is sent anywhere.
   const LIB_KEY = 'mmde.library.v1';
@@ -63,7 +64,15 @@
     libWatchers.forEach((f) => f());
   };
   const trackKey = (filmId, section, title) => filmId + '|' + section + '|' + title.toLowerCase();
-  const PLATFORMS = [['youtube', 'YouTube'], ['spotify', 'Spotify'], ['apple', 'Apple Music'], ['deezer', 'Deezer']];
+  const PLATFORMS = [['spotify', 'Spotify'], ['apple', 'Apple Music'], ['youtube', 'YouTube'], ['deezer', 'Deezer']];
+  // Small simplified glyphs (not the official logos), drawn inline so nothing external is loaded.
+  const ICONS = {
+    spotify: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5.5 9.2c4.4-1.3 9.6-1 13.4 1.3M6.3 12.7c3.5-1 7.2-.7 10.2 1.1M7.2 16c2.7-.7 5.3-.5 7.6.8" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
+    apple: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M16.5 4.5v9.6a3 3 0 1 1-1.8-2.7V7.7l-5 1.2v7.2a3 3 0 1 1-1.8-2.7V6.8z" fill="currentColor"/></svg>',
+    youtube: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="3.5" fill="currentColor"/><path d="M10.2 9.3v5.4l4.7-2.7z" fill="var(--icon-cut,#0b0f1a)"/></svg>',
+    deezer: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><g fill="currentColor"><rect x="3" y="15.5" width="3.6" height="3"/><rect x="7.6" y="15.5" width="3.6" height="3"/><rect x="12.2" y="15.5" width="3.6" height="3"/><rect x="16.8" y="15.5" width="3.6" height="3"/><rect x="12.2" y="11" width="3.6" height="3"/><rect x="16.8" y="11" width="3.6" height="3"/><rect x="16.8" y="6.5" width="3.6" height="3"/></g></svg>',
+  };
+  const icon = (p) => { const t = document.createElement('template'); t.innerHTML = ICONS[p]; return t.content.firstChild; };
   const searchLink = (p, q) => {
     const e = encodeURIComponent(q);
     return { youtube: 'https://www.youtube.com/results?search_query=' + e, spotify: 'https://open.spotify.com/search/' + e, apple: 'https://music.apple.com/search?term=' + e, deezer: 'https://www.deezer.com/search/' + e }[p];
@@ -96,13 +105,13 @@
 
   // One song row: platform buttons (exact = verified catalog match, dashed = search only) and a favorite heart.
   const CONF_TEXT = { green: 'Confirmed: listed by 2 or more independent sources', amber: 'One source: listed by one reputable source', red: 'Unverified: only found in community playlists' };
-  const SRC_NAME = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', community: 'community playlist' };
+  const SRC_NAME = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', credits: 'artist matches composer', community: 'community playlist' };
   const trackRow = (film, section, t, initial, meta) => {
     const links = {};
     PLATFORMS.forEach(([p]) => { links[p] = { url: searchLink(p, t.title + ' ' + film.title), kind: 'search' }; });
     let art = '';
     const fav = () => lib.favorites[trackKey(film.id, section, t.title)];
-    const row = el('div', { class: 'trow' });
+    const row = el('div', { class: 'trow titem' });
     if (meta) row.dataset.conf = meta.confidence;
     const heart = el('button', { type: 'button', class: 'heart', 'aria-label': 'Favorite' });
     const paintHeart = () => { const on = !!fav(); heart.textContent = on ? '♥' : '♡'; heart.classList.toggle('on', on); heart.title = on ? 'Remove from favorites' : 'Add to favorites (also follows the title)'; };
@@ -112,11 +121,16 @@
         art ? el('img', { class: 'tart', src: safeUrl(art), alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : el('span', { class: 'tart blank' }),
         el('span', { class: 'tinfo' },
           el('strong', {}, meta ? el('span', { class: 'cdot cdot-' + meta.confidence, title: CONF_TEXT[meta.confidence] + '\n' + meta.evidence.map((e) => e.label).join('\n') }) : null, t.title),
-          el('small', {}, [(t.artists || []).join(', '), fmtLen(t.lengthSec), meta ? [...new Set(meta.evidence.map((e) => SRC_NAME[e.source] || e.source))].join(' + ') : ''].filter(Boolean).join(' · '))),
-        el('span', { class: 'tpills' }, PLATFORMS.map(([p, name]) => el('a', {
-          class: 'plink ' + (links[p].kind === 'resolved' ? 'exact' : 'guess'), 'data-p': p, href: safeUrl(links[p].url), target: '_blank', rel: 'noopener noreferrer',
-          title: links[p].kind === 'resolved' ? 'Exact match on ' + name : 'Opens a ' + name + ' search (not a verified match)'
-        }, name))),
+          el('small', {}, [(t.artists || []).join(', '), fmtLen(t.lengthSec)].filter(Boolean).join(' · ')),
+          meta ? el('small', { class: 'tsrc' }, [...new Set(meta.evidence.map((e) => SRC_NAME[e.source] || e.source))].join(' + ')) : null),
+        el('span', { class: 'tpills' }, PLATFORMS.map(([p, name]) => {
+          const a = el('a', {
+            class: 'plink ' + (links[p].kind === 'resolved' ? 'exact' : 'guess'), 'data-p': p, href: safeUrl(links[p].url), target: '_blank', rel: 'noopener noreferrer', 'aria-label': name + (links[p].kind === 'resolved' ? ' (direct link)' : ' (search)'),
+            title: links[p].kind === 'resolved' ? 'Open on ' + name + ' (verified match)' : 'Search ' + name + ' (not a verified match)'
+          }, el('span', { class: 'plabel' }, name));
+          a.prepend(icon(p));
+          return a;
+        })),
         heart);
       paintHeart();
     };
@@ -158,7 +172,8 @@
     body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Collecting from Wikipedia, Apple Music and Deezer... (the first time can take up to a minute for big films)')));
     const film = { id: d.id, title: d.title, kind: d.kind, year: d.year, posterPath: d.posterPath };
     const yt = el('a', { href: safeUrl(searchLink('youtube', d.title + ' ' + (d.year || '') + ' soundtrack')), target: '_blank', rel: 'noopener noreferrer' }, 'Search YouTube for the ' + d.title + ' soundtrack');
-    call('/api/soundtrack-merged?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '')).then((m) => {
+    const extra = (d.composers && d.composers.length ? '&composer=' + encodeURIComponent(d.composers.join('|')) : '') + (d.altTitles && d.altTitles.length ? '&alt=' + encodeURIComponent(d.altTitles.join('|')) : '');
+    call('/api/soundtrack-merged?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '') + extra).then((m) => {
       if (token !== viewToken) return;
       if (!m.sections || !m.sections.length) { body.replaceChildren(el('p', { class: 'note' }, 'No soundtrack list was found on Wikipedia, Apple Music or Deezer for this title yet. '), yt); return; }
       const toResolve = [];
@@ -175,15 +190,15 @@
         const det = el('details', { class: 'tsection' + (sec.origin === 'community' ? ' tcommunity' : '') }, ...[
           el('summary', {}, sec.name + ' · ' + rows.length + (rows.length === 1 ? ' track' : ' tracks')),
           big ? el('button', { type: 'button', class: 'chip findbtn', onclick: (e) => { const todo = rows.filter((r) => r.missing); e.target.disabled = true; e.target.textContent = 'Finding exact links for ' + todo.length + ' songs... (a few minutes)'; resolveQueue(todo, token, 2).then(() => { e.target.textContent = 'Done: exact links shown where found'; }); } }, 'Find missing Apple Music / Deezer links (takes a while)') : null,
-          ...rows.map((r) => r.el)].filter(Boolean));
+          el('div', { class: 'tbody' }, ...rows.map((r) => r.el))].filter(Boolean));
         if (idx < 2 && sec.origin !== 'community') det.open = true;
         if (!big) toResolve.push(...rows.filter((r) => r.missing));
         return det;
       });
       const c = m.counts;
-      const wrap = el('div', { class: 'tfilter-all' });
+      const wrap = el('div', { class: 'tfilter-all tview-cards' });
       const filterChip = (key, label, dot) => el('button', { type: 'button', class: 'chip' + (key === 'all' ? ' active' : ''), onclick: (e) => {
-        const chip = e.currentTarget; wrap.className = 'tfilter-' + key; chip.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === chip));
+        const chip = e.currentTarget; wrap.className = 'tfilter-' + key + ' ' + (wrap.classList.contains('tview-list') ? 'tview-list' : 'tview-cards'); chip.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === chip));
       } }, dot ? el('span', { class: 'cdot cdot-' + dot }) : null, label);
       wrap.append(
         el('p', { class: 'note' }, c.total + ' songs found' + (m.wikipedia ? ' · tracklist from ' : ''), m.wikipedia ? el('a', { href: safeUrl(m.wikipedia.url), target: '_blank', rel: 'noopener noreferrer' }, 'Wikipedia') : null, m.wikipedia ? ' (CC BY-SA 4.0)' : '', '. MMDE never plays or hosts audio.'),
@@ -191,9 +206,14 @@
           filterChip('all', 'All ' + c.total),
           filterChip('green', 'Confirmed ' + c.green, 'green'),
           filterChip('amber', 'One source ' + c.amber, 'amber'),
-          filterChip('red', 'Unverified ' + c.red, 'red')),
+          filterChip('red', 'Unverified ' + c.red, 'red'),
+          el('span', { class: 'viewtoggle' },
+            el('button', { type: 'button', class: 'chip active', onclick: (e) => { wrap.classList.remove('tview-list'); wrap.classList.add('tview-cards'); e.currentTarget.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === e.currentTarget)); } }, 'Cards'),
+            el('button', { type: 'button', class: 'chip', onclick: (e) => { wrap.classList.remove('tview-cards'); wrap.classList.add('tview-list'); e.currentTarget.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === e.currentTarget)); } }, 'List'))),
         el('p', { class: 'note' }, el('span', { class: 'cdot cdot-green' }), 'confirmed by 2+ independent sources   ', el('span', { class: 'cdot cdot-amber' }), 'one source   ', el('span', { class: 'cdot cdot-red' }), 'only in a community playlist. Solid buttons are direct catalog links; dashed ones open a search.'),
         ...sections,
+        ...(m.verified === 'none' ? [el('p', { class: 'note' }, 'We could not verify that these albums belong to this title: no composer credit on TMDB and no Wikipedia tracklist. They were matched by name only, so songs are marked unverified (red) unless two catalogs agree.')] : []),
+        ...((m.skipped || []).length ? [el('p', { class: 'note' }, 'Skipped ' + m.skipped.length + (m.skipped.length === 1 ? ' album' : ' albums') + ' with the same name that did not match this title\'s composer: ' + m.skipped.map((x) => x.name).join('; ') + '.')] : []),
         ...(m.partial ? [el('p', { class: 'note' }, 'Some albums were too slow to load, so this list may be incomplete. Reload to try again.')] : []),
         el('p', { class: 'note' }, 'Looking somewhere else? ', yt));
       body.replaceChildren(wrap);
@@ -228,7 +248,7 @@
         list.sort((a, b) => (a.no || 0) - (b.no || 0)).forEach((f) => { (bySection[f.section] = bySection[f.section] || []).push(f); });
         stuff.push(el('div', { class: 'card' },
           el('h3', {}, film.title),
-          ...Object.entries(bySection).flatMap(([sec, songs]) => [el('p', { class: 'note' }, sec), ...songs.map((f) => trackRow(film, f.section, { no: f.no, title: f.title, artists: f.artists, lengthSec: f.lengthSec }, f, f.meta).el)])));
+          ...Object.entries(bySection).flatMap(([sec, songs]) => [el('p', { class: 'note' }, sec), el('div', { class: 'tview-list' }, ...songs.map((f) => trackRow(film, f.section, { no: f.no, title: f.title, artists: f.artists, lengthSec: f.lengthSec }, f, f.meta).el))])));
       });
       stuff.push(el('div', { class: 'chips', style: 'margin-top:18px' },
         el('button', { type: 'button', class: 'chip', onclick: () => {
@@ -283,7 +303,8 @@
     if (d.kind === 'tv') {
       const seasons = d.seasons || [];
       parts.push(el('div', { class: 'card' }, el('h3', {}, 'Seasons'),
-        el('div', { class: 'postergrid' }, seasons.map((s) => el('div', { class: 'pcard' },
+        el('div', { class: 'tl' }, seasons.map((s) => el('div', { class: 'pcard tlitem' },
+          el('span', { class: 'tlyear' }, s.airDate ? s.airDate.slice(0, 4) : 'TBA'),
           poster(s.posterPath, 'w342'),
           el('strong', {}, s.name || ('Season ' + s.seasonNumber)),
           el('small', {}, (s.episodeCount || 0) + ' episodes' + (s.airDate ? ' · ' + s.airDate.slice(0, 4) : '') + (s.voteAverage ? ' · ★ ' + s.voteAverage : '')))))));

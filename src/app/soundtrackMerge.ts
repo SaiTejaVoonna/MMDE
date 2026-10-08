@@ -1,15 +1,16 @@
 import { classifyVersion, normalizeArtist, normalizeTitle } from '../matching/normalize.ts';
 import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { CatalogAlbum, CatalogTrack } from '../providers/catalogAlbums.ts';
-import { looseFold } from '../providers/catalogAlbums.ts';
+import { artistMatches, looseFold } from '../providers/catalogAlbums.ts';
 
 // Phase A: merge every soundtrack source we have into ONE organized list, and say how much each song can be trusted.
-//   green = confirmed by 2+ independent sources     (e.g. on the Wikipedia tracklist AND on an Apple Music album named after the film)
+//   green = confirmed by 2+ independent sources     (e.g. on the Wikipedia tracklist AND on an Apple Music album named after the film;
+//           or on a catalog album AND credited to the film's composer)
 //   amber = one reputable source                    (a Wikipedia tracklist, or one catalog album named after the film)
 //   red   = only a community playlist / unverified  (anyone can make those)
 
 export type Confidence = 'green' | 'amber' | 'red';
-export type EvidenceSource = 'wikipedia' | 'apple' | 'deezer' | 'community';
+export type EvidenceSource = 'wikipedia' | 'apple' | 'deezer' | 'credits' | 'community';
 export interface Evidence { source: EvidenceSource; label: string; url?: string }
 export interface MergedTrack {
   key: string;
@@ -29,7 +30,11 @@ export interface MergedSoundtrack {
   sections: MergedSection[];
   wikipedia?: { title: string; url: string };
   albums: CatalogAlbum[];
+  /** Albums/playlists that were found but dropped because neither artist nor songs matched this title. */
+  skipped: Array<{ name: string; platform: string; reason: string }>;
   counts: { green: number; amber: number; red: number; total: number };
+  /** How we know the albums belong to this title: the film's composer (TMDB), a Wikipedia tracklist, or 'none' (matched by name only). */
+  verified: 'composer' | 'wikipedia' | 'none';
   /** True when some album's tracks could not be fetched in time, so the list may be incomplete. */
   partial: boolean;
 }
@@ -40,8 +45,12 @@ const PLATFORM_LABEL = { apple: 'Apple Music', deezer: 'Deezer', 'deezer-playlis
 export const trackKey = (title: string) => `${looseFold(normalizeTitle(title))}|${classifyVersion(title)}`;
 
 export function confidenceOf(evidence: Evidence[]): Confidence {
-  const kinds = new Set(evidence.filter((e) => e.source !== 'community').map((e) => e.source));
-  return kinds.size >= 2 ? 'green' : kinds.size === 1 ? 'amber' : 'red';
+  const kinds = new Set(evidence.filter((e) => e.source !== 'community' && e.source !== 'credits').map((e) => e.source));
+  if (kinds.size >= 2) return 'green';
+  // "The credited artist is the film's composer" supports a song, but only counts as confirmation next to a catalog listing.
+  const inCatalog = kinds.has('apple') || kinds.has('deezer');
+  if (kinds.size === 1 && inCatalog && evidence.some((e) => e.source === 'credits')) return 'green';
+  return kinds.size === 1 ? 'amber' : 'red';
 }
 
 function unionArtists(a: string[], b: string[]): string[] {
@@ -50,7 +59,7 @@ function unionArtists(a: string[], b: string[]): string[] {
   return [...seen.values()];
 }
 
-export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean } = {}): MergedSoundtrack {
+export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped'] } = {}): MergedSoundtrack {
   const sections: MergedSection[] = [];
   const byKey = new Map<string, MergedTrack>(); // every song seen so far, wherever it was first listed
   const addEvidence = (t: MergedTrack, e: Evidence) => { if (!t.evidence.some((x) => x.source === e.source && x.label === e.label)) t.evidence.push(e); };
@@ -109,10 +118,22 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
     if (fresh.length) sections.push({ name: `Community playlist (unverified): ${album.name}`, origin: 'community', tracks: fresh });
   }
 
+  // 4. Artist check: a song credited to the film's composer (per TMDB) gets one extra, independent piece of evidence.
+  for (const t of byKey.values()) {
+    const hit = (opts.composers ?? []).find((c) => t.artists.some((a) => artistMatches(a, c)));
+    if (hit) addEvidence(t, { source: 'credits', label: `Credited artist matches the film's composer, ${hit} (TMDB credits)` });
+  }
+
+  // With no composer and no Wikipedia list, an album is matched by its NAME only ("Kingdom" fits many works): never call that trustworthy.
+  const verified: MergedSoundtrack['verified'] = (opts.composers ?? []).length ? 'composer' : wiki ? 'wikipedia' : 'none';
   const counts = { green: 0, amber: 0, red: 0, total: 0 };
-  for (const t of byKey.values()) { t.confidence = confidenceOf(t.evidence); counts[t.confidence]++; counts.total++; }
+  for (const t of byKey.values()) {
+    t.confidence = confidenceOf(t.evidence);
+    if (verified === 'none' && t.confidence === 'amber') t.confidence = 'red';
+    counts[t.confidence]++; counts.total++;
+  }
   return {
     sections, wikipedia: wiki ? { title: wiki.page.title, url: wiki.page.url } : undefined,
-    albums: fetched.map((f) => f.album), counts, partial: !!opts.partial,
+    albums: fetched.map((f) => f.album), skipped: opts.skipped ?? [], verified, counts, partial: !!opts.partial,
   };
 }

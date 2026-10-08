@@ -170,3 +170,12 @@ test('"starwars" also searches "star wars" and ranks the franchise first; deep r
   await tmdbResolver('t', f).search('starwars', { deep: true });
   assert.ok(seen.some((x) => x.endsWith(':2')), 'deep fetches page 2');
 });
+
+test('tmdbDetails: composers and alternate titles come back with the details (movie and tv shapes)', async () => {
+  const movie = await tmdbDetails('tmdb-movie-5', 't', router({ 'movie/5': { title: 'Kingdom', original_title: 'కింగ్‌డమ్', credits: { crew: [{ name: 'Anirudh Ravichander', job: 'Original Music Composer' }, { name: 'Someone', job: 'Director' }, { name: 'Anirudh Ravichander', job: 'Music' }] }, alternative_titles: { titles: [{ title: 'Kingdom Telugu' }, { title: 'Kingdom' }] } } }));
+  assert.deepEqual(movie.composers, ['Anirudh Ravichander']);
+  assert.deepEqual(movie.altTitles, ['కింగ్‌డమ్', 'Kingdom Telugu'], 'duplicates of the main title dropped');
+  const tv = await tmdbDetails('tmdb-tv-6', 't', router({ 'tv/6': { name: 'That Time I Got Reincarnated as a Slime', original_name: '転生したらスライムだった件', aggregate_credits: { crew: [{ name: 'Hitoshi Hanagata', jobs: [{ job: 'Original Music Composer' }] }, { name: 'X', jobs: [{ job: 'Producer' }] }] }, alternative_titles: { results: [{ title: 'Tensei shitara Slime Datta Ken' }] } } }));
+  assert.deepEqual(tv.composers, ['Hitoshi Hanagata']);
+  assert.deepEqual(tv.altTitles, ['転生したらスライムだった件', 'Tensei shitara Slime Datta Ken']);
+});

@@ -34,11 +34,11 @@ export interface AppDeps extends Deps {
   /** Injectable for tests; defaults to the real TMDB details lookup (movie, tv or collection). */
   details?: (id: string, token: string) => Promise<TmdbDetails>;
   /** Wikipedia tracklist lookup. Absent (offline mode) = the endpoint answers 503. */
-  soundtrack?: (title: string, year?: number) => Promise<Soundtrack | null>;
+  soundtrack?: (title: string, year?: number, alts?: string[]) => Promise<Soundtrack | null>;
   /** Per-track Apple Music / Deezer match. Absent = 503. */
   trackLinks?: (q: TrackQuery) => Promise<TrackLinksResult>;
   /** Apple Music / Deezer albums and playlists named after a film (fallback when Wikipedia has no tracklist). */
-  albums?: (title: string, year?: number, extraNames?: string[]) => Promise<CatalogAlbum[]>;
+  albums?: (title: string, year?: number, extraNames?: string[], alts?: string[]) => Promise<CatalogAlbum[]>;
   albumTracks?: (platform: CatalogPlatform, id: string) => Promise<CatalogTrack[]>;
 }
 
@@ -214,11 +214,13 @@ export function createApp(deps: AppDeps): Server {
         const yearRaw = url.searchParams.get('year');
         const year = yearRaw && /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : undefined;
         if (title.length < 2 || title.length > 120) return send(res, 400, { error: 'title must be 2-120 characters' });
-        const key = `${title.toLowerCase()}|${year ?? ''}`;
+        const list = (name: string, max: number, len: number) => (url.searchParams.get(name) ?? '').split('|').map((x) => x.trim()).filter((x) => x && x.length <= len).slice(0, max);
+        const composers = list('composer', 4, 80); const alts = list('alt', 8, 120);
+        const key = `${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}`;
         const hit = mergedCache.get(key);
         if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value);
         try {
-          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks }, title, year);
+          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks }, title, year, { composers, alts });
           if (!value.partial) { mergedCache.set(key, { at: Date.now(), value }); if (mergedCache.size > 300) mergedCache.delete(mergedCache.keys().next().value as string); }
           return send(res, 200, value);
         } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }

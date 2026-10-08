@@ -64,7 +64,7 @@ createApp({
   tmdbToken, allowedOrigins, trustProxy,
   seasons: (media, token) => tmdbSeasons(media, token, tmdbFetch),
   details: (id, token) => tmdbDetails(id, token, tmdbFetch),
-  soundtrack: offline ? undefined : (title, year) => wikiSoundtrack(userAgent, musicFetch).find(title, year),
+  soundtrack: offline ? undefined : (title, year, alts) => wikiSoundtrack(userAgent, musicFetch).find(title, year, alts),
   trackLinks: offline ? undefined : ((r) => (q) => r.resolve(q))(trackLinkResolver(userAgent, musicFetch)),
   ...(offline ? {} : ((c) => ({ albums: c.findAlbums, albumTracks: c.tracks }))(catalogResolver(userAgent, musicFetch))),
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),

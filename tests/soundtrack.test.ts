@@ -238,3 +238,9 @@ test('matchesWikiAlbum: real Apple names for the Baahubali score volumes match; 
   for (const n of ['Baahubali - The Beginning (Original Motion Picture Soundtrack)', 'Padmaavat (Original Motion Picture Soundtrack)', 'Baahubali - Single', 'Srii Bharatha Baahubali (Original Motion Picture Soundtrack)']) assert.equal(matchesWikiAlbum(base, n), false, n);
   assert.equal(matchesWikiAlbum('Some Film (Original Soundtrack)', 'Some Film (Original Soundtrack)'), true, 'whole-name match still works without volumes');
 });
+
+test('Wikipedia titles with a note after the quotes lose the stray quote mark (the "Kingdom Teaser OST" case)', () => {
+  const html = '<table class="tracklist"><tr><th>No.</th><th>Title</th><th>Singer(s)</th><th>Length</th></tr><tr><th>1.</th><td>"Kingdom Teaser OST" (Lyrics: Choir)</td><td>Anirudh Ravichander</td><td>1:19</td></tr><tr><th>2.</th><td>“Hridayam Lopala”</td><td>Anirudh Ravichander, Anumita Nadesan</td><td>3:40</td></tr></table>';
+  const [sec] = parseTracklists(html);
+  assert.deepEqual(sec!.tracks.map((t) => t.title), ['Kingdom Teaser OST (Lyrics: Choir)', 'Hridayam Lopala']);
+});

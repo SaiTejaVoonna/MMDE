@@ -27,6 +27,9 @@ test('confidenceOf: 2+ independent sources = green, one = amber, community only 
   const w = { source: 'wikipedia' as const, label: 'w' }, a = { source: 'apple' as const, label: 'a' }, d = { source: 'deezer' as const, label: 'd' }, c = { source: 'community' as const, label: 'c' };
   assert.equal(confidenceOf([w, a]), 'green'); assert.equal(confidenceOf([a, d]), 'green'); assert.equal(confidenceOf([w]), 'amber');
   assert.equal(confidenceOf([a, { ...a, label: 'second apple album' }]), 'amber', 'two albums of the SAME platform are not independent');
+  const cr = { source: 'credits' as const, label: 'cr' };
+  assert.equal(confidenceOf([w, cr]), 'amber', 'composer match alone does not confirm'); assert.equal(confidenceOf([a, cr]), 'green', 'catalog + composer match confirms');
+  assert.equal(confidenceOf([cr]), 'red'); assert.equal(confidenceOf([c, cr]), 'red');
   assert.equal(confidenceOf([w, c]), 'amber', 'a community playlist never upgrades a song'); assert.equal(confidenceOf([c]), 'red'); assert.equal(confidenceOf([]), 'red');
 });
 
@@ -53,7 +56,7 @@ test('mergeSoundtrack: Wikipedia order kept, catalog evidence and direct links a
 
 test('mergeSoundtrack: with no Wikipedia list, albums form the list; nothing at all gives an empty result', () => {
   const m = mergeSoundtrack(null, [{ album: apple, tracks: [ct(1, 'Song A', 'u1'), ct(2, 'Song B', 'u2')] }]);
-  assert.equal(m.sections.length, 1); assert.deepEqual(m.counts, { green: 0, amber: 2, red: 0, total: 2 }); assert.equal(m.wikipedia, undefined);
+  assert.equal(m.sections.length, 1); assert.deepEqual(m.counts, { green: 0, amber: 0, red: 2, total: 2 }, 'nothing verifies the album, so it is red'); assert.equal(m.wikipedia, undefined);
   const empty = mergeSoundtrack(null, []);
   assert.deepEqual(empty.sections, []); assert.equal(empty.counts.total, 0);
 });
@@ -93,4 +96,81 @@ test('/api/soundtrack-merged: merged result, cached when complete, 400/503/502 h
   const off = createApp({ providers: [], mediaResolvers: [], linkResolvers: [], store: jsonStore(), webRoot: '.' });
   await new Promise<void>((r) => off.listen(0, r));
   try { assert.equal((await fetch(`http://127.0.0.1:${(off.address() as AddressInfo).port}/api/soundtrack-merged?title=abc`)).status, 503); } finally { await new Promise<void>((r) => off.close(() => r())); }
+});
+
+import { belongsToTitle } from '../src/app/soundtrackService.ts';
+import { artistMatches } from '../src/providers/catalogAlbums.ts';
+
+test('artistMatches: initials, punctuation and doubled letters; not just any shared word', () => {
+  assert.equal(artistMatches('M.M. Keeravaani', 'M. M. Keeravani'), true);
+  assert.equal(artistMatches('Anirudh Ravichander', 'Anirudh Ravichander & Vijay'), true);
+  assert.equal(artistMatches('Thaman S', 'Thaman'), true, 'credits often drop the initial');
+  assert.equal(artistMatches('Raja', 'Raja Kumari'), false, 'a short first name alone is too weak');
+  assert.equal(artistMatches('ToyTree', 'Anirudh Ravichander'), false);
+});
+
+test('Kingdom: a same-named album by other artists is rejected; the real film album is kept', () => {
+  const kingdomWiki: Soundtrack = { page: { title: 'Kingdom (soundtrack)', url: 'https://en.wikipedia.org/wiki/k' }, pageKind: 'soundtrack', license: 'CC BY-SA 4.0', sections: [{ name: 'Music', tracks: [{ no: 2, title: 'Hridayam Lopala', artists: ['Anirudh Ravichander'], lyricists: [] }, { no: 3, title: 'Anna Antene', artists: ['Anirudh Ravichander'], lyricists: [] }] }] };
+  const fake: CatalogAlbum = { platform: 'apple', id: '9', name: 'Kingdom (Original Soundtrack)', artist: 'ToyTree', url: 'https://music.apple.com/a/9', kind: 'album' };
+  const fakeTracks = [ct(1, 'Bloom', 'u', ['ToyTree', 'Amos Roddy']), ct(2, 'Aurora', 'u', ['ToyTree'])];
+  const real: CatalogAlbum = { platform: 'apple', id: '8', name: 'Kingdom (Original Motion Picture Soundtrack)', artist: 'Anirudh Ravichander', url: 'https://music.apple.com/a/8', kind: 'album' };
+  const realTracks = [ct(1, 'Hridayam Lopala', 'https://music.apple.com/t/1', ['Anirudh Ravichander'])];
+  const composers = ['Anirudh Ravichander'];
+  assert.equal(belongsToTitle(fake, fakeTracks, composers, kingdomWiki).ok, false);
+  assert.match(belongsToTitle(fake, fakeTracks, composers, kingdomWiki).reason, /ToyTree/);
+  assert.equal(belongsToTitle(real, realTracks, composers, kingdomWiki).ok, true);
+  assert.equal(belongsToTitle(fake, fakeTracks, [], kingdomWiki).ok, true, 'without a known composer we can only match by title');
+  // a compilation by "Various Artists" is still accepted when its songs are the Wikipedia tracklist
+  const various: CatalogAlbum = { ...real, id: '7', artist: 'Various Artists' };
+  assert.equal(belongsToTitle(various, [ct(1, 'Hridayam Lopala', 'u', ['Someone']), ct(2, 'Anna Antene', 'u', ['Someone'])], composers, kingdomWiki).ok, true);
+});
+
+test('mergeSoundtrack: a track by the film composer gets "credits" evidence; skipped albums are reported', () => {
+  const m = mergeSoundtrack(wiki, [], { composers: ['Thaman S'], skipped: [{ name: 'Kingdom (Original Soundtrack)', platform: 'apple', reason: 'x' }] });
+  const fire = m.sections[0]!.tracks[0]!;
+  assert.deepEqual(fire.evidence.map((e) => e.source), ['wikipedia', 'credits']); assert.equal(fire.confidence, 'amber', 'Wikipedia + composer match is not enough without a catalog listing');
+  const withApple = mergeSoundtrack(wiki, [{ album: apple, tracks: [ct(1, 'Firestorm', 'https://music.apple.com/t/1')] }], { composers: ['Thaman S'] });
+  assert.equal(withApple.sections[0]!.tracks[0]!.confidence, 'green');
+  assert.equal(m.sections[0]!.tracks[1]!.confidence, 'amber', 'Sruthi Ranjani is not the composer');
+  assert.equal(m.skipped.length, 1);
+});
+
+test('buildMergedSoundtrack: composers filter albums end to end and alt titles reach the sources', async () => {
+  const seen: { alts?: string[] } = {};
+  const fakeAlbum: CatalogAlbum = { platform: 'apple', id: '9', name: 'Kingdom (Original Soundtrack)', artist: 'ToyTree', url: 'u', kind: 'album' };
+  const m = await buildMergedSoundtrack({
+    wiki: async (_t, _y, alts) => { seen.alts = alts; return wiki; },
+    albums: async () => [apple, fakeAlbum],
+    albumTracks: async (_p: string, id: string) => (id === '9' ? [ct(1, 'Bloom', 'u', ['ToyTree'])] : [ct(1, 'Firestorm', 'https://music.apple.com/t/1', ['Thaman S'])]),
+  } as never, 'They Call Him OG', 2025, { composers: ['Thaman S'], alts: ['OG'] });
+  assert.deepEqual(seen.alts, ['OG']);
+  assert.deepEqual(m.skipped.map((x) => x.name), ['Kingdom (Original Soundtrack)']);
+  assert.ok(!m.sections.some((s) => s.tracks.some((t) => t.title === 'Bloom')), 'the other Kingdom never reaches the list');
+});
+
+test('/api/soundtrack-merged passes composer and alt params through, and caches per combination', async () => {
+  const got: Array<{ composers?: string[]; alts?: string[] }> = [];
+  const s = createApp({
+    providers: [], mediaResolvers: [], linkResolvers: [], store: jsonStore(), webRoot: '.',
+    soundtrack: async (_t, _y, alts) => { got.push({ alts }); return wiki; }, albums: async () => [], albumTracks: async () => [],
+    rateLimit: { general: { windowMs: 60_000, max: 1000 }, discover: { windowMs: 60_000, max: 1000 } },
+  });
+  await new Promise<void>((r) => s.listen(0, r));
+  const base = `http://127.0.0.1:${(s.address() as AddressInfo).port}`;
+  try {
+    await fetch(`${base}/api/soundtrack-merged?title=Kingdom&year=2025&composer=${encodeURIComponent('Anirudh Ravichander|X')}&alt=${encodeURIComponent('Kingdom Telugu')}`);
+    await fetch(`${base}/api/soundtrack-merged?title=Kingdom&year=2025&composer=${encodeURIComponent('Someone Else')}`);
+    assert.equal(got.length, 2, 'different composers are different cache entries');
+    assert.deepEqual(got[0]!.alts, ['Kingdom Telugu']);
+  } finally { await new Promise<void>((r) => s.close(() => r())); }
+});
+
+test('verification level: no composer and no Wikipedia list means catalog-only songs are red, never amber', () => {
+  const onlyApple = mergeSoundtrack(null, [{ album: apple, tracks: [ct(1, 'Song A', 'u1')] }]);
+  assert.equal(onlyApple.verified, 'none'); assert.equal(onlyApple.sections[0]!.tracks[0]!.confidence, 'red'); assert.deepEqual(onlyApple.counts, { green: 0, amber: 0, red: 1, total: 1 });
+  const twoCatalogs = mergeSoundtrack(null, [{ album: apple, tracks: [ct(1, 'Song A', 'u1')] }, { album: deezerAlbum, tracks: [ct(1, 'Song A', 'u2')] }]);
+  assert.equal(twoCatalogs.sections[0]!.tracks[0]!.confidence, 'green', 'two independent catalogs still agree');
+  assert.equal(mergeSoundtrack(wiki, [], {}).verified, 'wikipedia');
+  assert.equal(mergeSoundtrack(null, [], { composers: ['X'] }).verified, 'composer');
+  assert.equal(mergeSoundtrack(null, [{ album: apple, tracks: [ct(1, 'Song A', 'u1')] }], { composers: ['Thaman S'] }).sections[0]!.tracks[0]!.confidence, 'green', 'with a known composer the album artist/credits confirm it');
 });

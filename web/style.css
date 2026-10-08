@@ -148,3 +148,26 @@ button.pcard:hover{border-color:#35425d;background:rgba(255,255,255,.03)}
 .cdot-green{background:#34d399}.cdot-amber{background:#fbbf24}.cdot-red{background:#ff6b6b}
 .tfilter-green .trow:not([data-conf=green]),.tfilter-amber .trow:not([data-conf=amber]),.tfilter-red .trow:not([data-conf=red]){display:none}
 .tcommunity summary{color:#ff9d9d}
+
+/* platform icon buttons, cards/list views, timeline */
+.plink{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.plink svg{flex:0 0 auto}
+.plink.guess svg{opacity:.8}
+.tview-cards .tbody{display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:14px;padding:12px 0 6px}
+.tview-cards .trow{display:flex;flex-direction:column;align-items:stretch;gap:8px;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:10px;position:relative;grid-template-columns:none}
+.tview-cards .tart{width:100%;height:auto;aspect-ratio:1;border-radius:10px;display:block}
+.tview-cards .tno{position:absolute;top:16px;left:16px;background:rgba(0,0,0,.62);color:#fff;border-radius:99px;padding:1px 8px;font-size:12px;text-align:left;z-index:1}
+.tview-cards .heart{position:absolute;top:14px;right:14px;background:rgba(0,0,0,.6);border-radius:50%;width:32px;height:32px;font-size:17px;z-index:1}
+.tview-cards .tinfo strong{white-space:normal;overflow:visible;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.tview-cards .tpills{justify-content:flex-start;gap:8px}
+.tview-cards .plink{width:36px;height:36px;padding:0;border-radius:50%}
+.tview-cards .plabel{display:none}
+.tview-list .plink{height:30px;padding:0 12px 0 9px;border-radius:99px}
+.tsrc{color:#8a97ae;font-size:11px}
+.viewtoggle{margin-left:auto;display:inline-flex;gap:6px}
+.tl{display:flex;gap:16px;overflow-x:auto;padding:32px 4px 12px;position:relative}
+.tl::before{content:"";position:absolute;left:0;right:0;top:17px;height:2px;background:var(--line)}
+.tlitem{flex:0 0 150px;position:relative}
+.tlyear{position:absolute;top:-26px;left:8px;font-size:12px;color:var(--mute);background:var(--panel);padding-right:6px}
+.tlyear::before{content:"";display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--accent);margin-right:6px;vertical-align:-1px}
+.tlitem.current .tlyear{color:var(--accent)}

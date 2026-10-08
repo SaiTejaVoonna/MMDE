@@ -267,6 +267,10 @@ export interface TmdbDetails {
   voteAverage?: number;
   /** A movie that belongs to a franchise points at it; the franchise lists its films in release order. */
   collection?: { id: string; name: string; posterPath?: string };
+  /** Credited music composers (TMDB crew). Used to confirm that a soundtrack album really belongs to this title. */
+  composers: string[];
+  /** Other names the title goes by (original-language and romanized titles). Catalogs often use these. */
+  altTitles: string[];
   parts?: TmdbPart[];
   seasons?: TmdbSeason[];
 }
@@ -280,6 +284,23 @@ const mapPart = (m: RawPart): TmdbPart => ({
 });
 // TMDB's own order is not reliable; release date is (missing dates last).
 const byRelease = (a: TmdbPart, b: TmdbPart) => (a.releaseDate ?? '9999').localeCompare(b.releaseDate ?? '9999');
+
+const COMPOSER_JOBS = new Set(['original music composer', 'music', 'composer', 'music composer', 'songs']);
+/** Music composers from TMDB credits (movie: credits.crew[].job, tv: aggregate_credits.crew[].jobs[].job), deduped, max 4. */
+export function composersOf(d: any): string[] {
+  const crew: any[] = (d?.credits?.crew ?? d?.aggregate_credits?.crew ?? []);
+  const names = crew.filter((c) => (c.job ? [c.job] : (c.jobs ?? []).map((j: any) => j.job)).some((j: string) => COMPOSER_JOBS.has(String(j).toLowerCase()))).map((c) => String(c.name ?? '')).filter(Boolean);
+  return [...new Set(names)].slice(0, 4);
+}
+/** Alternative and original-language titles, deduped, max 8. */
+export function altTitlesOf(d: any, kind: 'movie' | 'tv' | 'collection'): string[] {
+  const main = String(kind === 'tv' ? d?.name ?? '' : d?.title ?? '').toLowerCase();
+  const raw: string[] = [kind === 'tv' ? d?.original_name : d?.original_title, ...((d?.alternative_titles?.titles ?? d?.alternative_titles?.results ?? []) as any[]).map((t) => t.title)].filter(Boolean);
+  const seen = new Set<string>([main]);
+  const out: string[] = [];
+  for (const t of raw) { const k = String(t).toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(String(t)); } }
+  return out.slice(0, 8);
+}
 
 export async function tmdbDetails(id: string, token: string, fetchImpl: typeof fetch = fetch): Promise<TmdbDetails> {
   const m = /^tmdb-(tv|movie|collection)-(\d{1,10})$/.exec(id);
@@ -296,10 +317,10 @@ export async function tmdbDetails(id: string, token: string, fetchImpl: typeof f
     const parts = ((c.parts ?? []) as RawPart[]).map(mapPart).sort(byRelease);
     return {
       id, kind, title: c.name ?? id, overview: c.overview || undefined, posterPath: c.poster_path || undefined, backdropPath: c.backdrop_path || undefined,
-      year: parts[0]?.year, genres: [], spokenLanguages: [], parts,
+      year: parts[0]?.year, genres: [], spokenLanguages: [], composers: [], altTitles: [], parts,
     };
   }
-  const d = await get(`${kind}/${num}?`);
+  const d = await get(`${kind}/${num}?append_to_response=${kind === 'tv' ? 'aggregate_credits' : 'credits'},alternative_titles&`);
   const out: TmdbDetails = {
     id, kind, title: (kind === 'tv' ? d.name : d.title) ?? id,
     tagline: d.tagline || undefined, overview: d.overview || undefined,
@@ -310,6 +331,8 @@ export async function tmdbDetails(id: string, token: string, fetchImpl: typeof f
     originalLanguage: d.original_language || undefined,
     spokenLanguages: ((d.spoken_languages ?? []) as Array<{ english_name?: string; name?: string }>).map((l) => l.english_name || l.name || '').filter(Boolean),
     voteAverage: d.vote_average ? Math.round(d.vote_average * 10) / 10 : undefined,
+    composers: composersOf(d),
+    altTitles: altTitlesOf(d, kind),
   };
   if (kind === 'tv') {
     out.seasons = ((d.seasons ?? []) as Array<any>).filter((s) => s.season_number >= 0).map((s) => ({
