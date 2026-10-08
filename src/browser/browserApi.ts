@@ -4,6 +4,7 @@ import { mergeMediaResults } from '../app/media.ts';
 import { aniListResolver } from '../providers/anilist.ts';
 import { jikanResolver } from '../providers/jikan.ts';
 import { wikipediaResolver } from '../providers/wikipedia.ts';
+import { tmdbResolver, tmdbSeasons } from '../providers/tmdb.ts';
 import { animeThemesProvider } from '../providers/animethemes.ts';
 import { curatedProvider, type SeedFile } from '../providers/curated.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
@@ -26,8 +27,8 @@ export function createBrowserApi(opts: { seeds: SeedFile[]; fetchImpl?: typeof f
   const memory = new Map<string, DiscoveryResult>();
   const f: typeof fetch = opts.fetchImpl ?? ((...a) => fetch(...a));
   const readSettings = (): Settings => {
-    try { return { live: true, anthropicKey: '', ...JSON.parse(store?.getItem(SETTINGS_KEY) ?? '{}') }; }
-    catch { return { live: true, anthropicKey: '' }; }
+    try { return { live: true, anthropicKey: '', tmdbToken: '', ...JSON.parse(store?.getItem(SETTINGS_KEY) ?? '{}') }; }
+    catch { return { live: true, anthropicKey: '', tmdbToken: '' }; }
   };
   const readResults = (): Record<string, DiscoveryResult> => {
     try { return JSON.parse(store?.getItem(RESULTS_KEY) ?? '{}'); } catch { return {}; }
@@ -39,26 +40,26 @@ export function createBrowserApi(opts: { seeds: SeedFile[]; fetchImpl?: typeof f
     settings: { get: readSettings, set: (s) => { try { store?.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch {} } },
     async search(q) {
       const st = readSettings();
-      const resolvers: MediaResolver[] = [seedMediaResolver(opts.seeds)];
-      if (st.live) resolvers.push(aniListResolver(f), jikanResolver(f), wikipediaResolver(f));
-      const results: Media[] = [];
       const errors: string[] = [];
-      for (const r of resolvers) {
-        try { results.push(...await r.search(q)); }
-        catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
+      if (st.tmdbToken) {
+        try {
+          const results = await tmdbResolver(st.tmdbToken, f).search(q);
+          return { results, errors, sources: ['tmdb'] };
+        } catch (e) {
+          errors.push(`tmdb: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
-            let merged = mergeMediaResults(results);
-      const canonical = merged[0];
-      const anilist = resolvers.find((r) => r.name === 'anilist');
-      if (canonical && anilist) {
-        try { merged = mergeMediaResults([...merged, ...(await anilist.search(canonical.title))]); }
-        catch (e) { errors.push(`anilist enrichment: ${e instanceof Error ? e.message : String(e)}`); }
-      }
-      return { results: merged, errors, sources: resolvers.map((r) => r.name) };
+      const results = await seedMediaResolver(opts.seeds).search(q);
+      return { results, errors, sources: ['local'] };
     },
     async getResult(id) {
       const r = memory.get(id) ?? readResults()[id];
       return r ? view(r) : null;
+    },
+    async getSeasons(media) {
+      const st = readSettings();
+      if (!st.tmdbToken) return [];
+      return tmdbSeasons(media, st.tmdbToken, f);
     },
     async discover(media, onJob) {
       const st = readSettings();
