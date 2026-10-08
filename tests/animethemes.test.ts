@@ -10,7 +10,7 @@ const fetchJson = (body: unknown): typeof fetch => (async () =>
 
 test('AnimeThemes maps structured OP/ED records into MMDE claims', async () => {
   const provider = animeThemesProvider(fetchJson({
-    anime: {
+    data: { findAnimeByExternalSite: [{
       id: 1,
       name: 'Test Anime',
       slug: 'test-anime',
@@ -18,9 +18,9 @@ test('AnimeThemes maps structured OP/ED records into MMDE claims', async () => {
         { id: 10, type: 'OP', sequence: 1, song: { id: 20, title: 'Opening Song', artists: [{ id: 30, name: 'Artist A' }] }, animethemeentries: [{ episodes: '1-12' }] },
         { id: 11, type: 'ED', sequence: 1, song: { id: 21, title: 'Ending Song', artists: [{ id: 31, name: 'Artist B' }] } },
       ],
-    },
+    }] },
   }));
-  const media: Media = { id: 'a', type: 'anime', title: 'Test Anime', altTitles: [], externalIds: {}, partRef: { kind: 'season', number: 2 } };
+  const media: Media = { id: 'a', type: 'anime', title: 'Test Anime', altTitles: [], externalIds: { mal: '1' }, partRef: { kind: 'season', number: 2 } };
   const claims = await provider.discover(media);
   assert.equal(claims.length, 2);
   assert.deepEqual(claims.map((x) => [x.role, x.position, x.title, x.artists, x.part.kind, x.part.number]), [
