@@ -65,7 +65,7 @@ function landing() {
   $app.replaceChildren(
     el('section', { class: 'hero' },
       el('h1', {}, 'Know the Title.', el('br'), el('em', {}, 'Discover the Music.')),
-      el('p', {}, 'Search any media title. MMDE first resolves what you mean — anime, movie, TV show, game or other media. Music comes in Phase 2.'),
+      el('p', {}, 'Search any media title. MMDE identifies the title and finds the music connected to it.'),
       el('div', { class: 'searchwrap' },
         el('span', { class: 'search-icon', 'aria-hidden': 'true' }),
         input,
