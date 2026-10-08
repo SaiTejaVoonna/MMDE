@@ -125,50 +125,11 @@
       let part = out.find((p) => p.part === label);
       if (!part) out.push(part = { part: label, roles: [] });
       const roleLabel = ROLE_LABEL[t.role];
-      let role = part.roles.find((r) => r.role === roleLabel);
-      if (!role) part.roles.push(role = { role: roleLabel, tracks: [] });
-      role.tracks.push(t);
+      let role2 = part.roles.find((r) => r.role === roleLabel);
+      if (!role2) part.roles.push(role2 = { role: roleLabel, tracks: [] });
+      role2.tracks.push(t);
     }
     return out;
-  }
-
-  // src/providers/types.ts
-  function createRateLimiter(intervalMs) {
-    let next = 0;
-    return async function wait() {
-      const now = Date.now();
-      const at = Math.max(now, next);
-      next = at + intervalMs;
-      if (at > now) await new Promise((r) => setTimeout(r, at - now));
-    };
-  }
-
-  // src/providers/anilist.ts
-  var QUERY = `query ($q: String) { Page(perPage: 5) { media(search: $q, type: ANIME) {
-  id idMal seasonYear title { romaji english native } synonyms } } }`;
-  function aniListResolver(fetchImpl = fetch) {
-    const wait = createRateLimiter(1e3);
-    return {
-      name: "anilist",
-      async search(query) {
-        await wait();
-        const res = await fetchImpl("https://graphql.anilist.co", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ query: QUERY, variables: { q: query } })
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status} from AniList`);
-        const data = await res.json();
-        return (data.data?.Page?.media ?? []).map((m) => ({
-          id: `anilist-${m.id}`,
-          type: "anime",
-          title: m.title.english ?? m.title.romaji ?? m.title.native ?? String(m.id),
-          altTitles: [m.title.romaji, m.title.native, ...m.synonyms ?? []].filter((x) => !!x),
-          year: m.seasonYear ?? void 0,
-          externalIds: { anilist: String(m.id), ...m.idMal ? { mal: String(m.idMal) } : {} }
-        }));
-      }
-    };
   }
 
   // src/matching/normalize.ts
@@ -210,10 +171,288 @@
     }
     return prev[b.length];
   }
+  function sameArtist(a, b) {
+    if (similarity(a, b) >= 0.85) return true;
+    const ta = a.split(" ").sort().join(" ");
+    const tb = b.split(" ").sort().join(" ");
+    return ta.length > 0 && similarity(ta, tb) >= 0.9;
+  }
   function similarity(a, b) {
     if (!a && !b) return 1;
     if (!a || !b) return 0;
     return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+  }
+
+  // src/app/media.ts
+  function mergeMediaResults(results) {
+    const byTitle = /* @__PURE__ */ new Map();
+    for (const media of results) {
+      const key = normalizeTitle(media.title);
+      if (!key) continue;
+      const existing = byTitle.get(key);
+      if (!existing) {
+        byTitle.set(key, { ...media, altTitles: [...new Set(media.altTitles)] });
+        continue;
+      }
+      const related = [...existing.relatedMedia ?? [], ...media.relatedMedia ?? []];
+      const relatedById = new Map(related.map((m) => [m.id, m]));
+      byTitle.set(key, {
+        ...existing,
+        altTitles: [.../* @__PURE__ */ new Set([...existing.altTitles, ...media.altTitles])],
+        externalIds: { ...existing.externalIds, ...media.externalIds },
+        year: existing.year ?? media.year,
+        partRef: existing.partRef ?? media.partRef,
+        relatedMedia: relatedById.size ? [...relatedById.values()] : void 0
+      });
+    }
+    return [...byTitle.values()];
+  }
+
+  // src/providers/types.ts
+  function createRateLimiter(intervalMs) {
+    let next = 0;
+    return async function wait() {
+      const now = Date.now();
+      const at = Math.max(now, next);
+      next = at + intervalMs;
+      if (at > now) await new Promise((r) => setTimeout(r, at - now));
+    };
+  }
+
+  // src/providers/anilist.ts
+  var QUERY = `query ($q: String) { Page(perPage: 8) { media(search: $q, type: ANIME) {
+  id idMal seasonYear format
+  title { romaji english native }
+  synonyms
+  relations {
+    edges {
+      relationType
+      node {
+        id idMal seasonYear format
+        title { romaji english native }
+        synonyms
+      }
+    }
+  }
+} } }`;
+  var MANGA_QUERY = `query ($q: String) { Page(perPage: 5) { media(search: $q, type: MANGA) {
+  id format title { romaji english native } synonyms
+  relations { edges { relationType node { id idMal seasonYear format title { romaji english native } synonyms } } }
+} } }`;
+  function inferPart(title, format) {
+    const text = [title.english, title.romaji, title.native].filter(Boolean).join(" ");
+    if (format === "MOVIE") return { kind: "movie" };
+    if (format === "OVA") return { kind: "ova" };
+    if (format === "SPECIAL" || format === "ONA") return { kind: "special" };
+    const patterns = [
+      /(?:season|part)\s*(\d+)/i,
+      /\b(\d+)(?:st|nd|rd|th)\s+season\b/i,
+      /\bcour\s*(\d+)\b/i
+    ];
+    for (const p of patterns) {
+      const m = text.match(p);
+      if (m) return { kind: "season", number: Number(m[1]) };
+    }
+    return { kind: "whole" };
+  }
+  function toMedia(m, relationType) {
+    const title = m.title.english ?? m.title.romaji ?? m.title.native ?? String(m.id);
+    return {
+      id: `anilist-${m.id}`,
+      type: "anime",
+      title,
+      altTitles: [m.title.romaji, m.title.native, ...m.synonyms ?? []].filter((x) => !!x),
+      year: m.seasonYear ?? void 0,
+      externalIds: { anilist: String(m.id), ...m.idMal ? { mal: String(m.idMal) } : {} },
+      partRef: inferPart(m.title, m.format),
+      ...relationType ? { relationType } : {}
+    };
+  }
+  function likelySameFranchise(root, candidate) {
+    const roots = [root.title, ...root.altTitles].map(normalizeTitle).filter((x) => x.length >= 10);
+    const candidates = [candidate.title, ...candidate.altTitles].map(normalizeTitle).filter(Boolean);
+    return roots.some((r) => candidates.some((c) => c.includes(r) || r.includes(c)));
+  }
+  function sourceAnimeRelations(root, manga) {
+    const animeFormats = /* @__PURE__ */ new Set(["TV", "TV_SHORT", "MOVIE", "SPECIAL", "OVA", "ONA"]);
+    const out = [];
+    for (const edge of manga.relations?.edges ?? []) {
+      if (edge.relationType !== "ADAPTATION" || !edge.node || !animeFormats.has(edge.node.format ?? "")) continue;
+      const candidate = toMedia(edge.node, "SOURCE_ADAPTATION");
+      if (candidate.id !== root.id && likelySameFranchise(root, candidate)) out.push(candidate);
+    }
+    return out;
+  }
+  function franchiseRelations(m) {
+    const edges = m.relations?.edges ?? [];
+    const allowed = /* @__PURE__ */ new Set(["PREQUEL", "SEQUEL", "PARENT", "SIDE_STORY", "SPIN_OFF", "OTHER", "ADAPTATION"]);
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    for (const edge of edges) {
+      const node = edge.node;
+      if (!node || !edge.relationType || !allowed.has(edge.relationType)) continue;
+      const child = toMedia(node, edge.relationType);
+      if (child.id === `anilist-${m.id}` || seen.has(child.id)) continue;
+      seen.add(child.id);
+      out.push(child);
+    }
+    return out;
+  }
+  function aniListResolver(fetchImpl = fetch) {
+    const wait = createRateLimiter(1e3);
+    return {
+      name: "anilist",
+      async search(query) {
+        const request = async (q, perPage = 8) => {
+          await wait();
+          const res = await fetchImpl("https://graphql.anilist.co", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: perPage === 8 ? QUERY : QUERY.replace("Page(perPage: 8)", `Page(perPage: ${perPage})`), variables: { q } })
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status} from AniList`);
+          const data = await res.json();
+          return data.data?.Page?.media ?? [];
+        };
+        const initial = await request(query);
+        if (!initial.length) return [];
+        const root = toMedia(initial[0]);
+        const related = franchiseRelations(initial[0]);
+        const exact = initial[0].title.romaji ? await request(initial[0].title.romaji, 20) : [];
+        const seen = new Set(related.map((m) => m.id));
+        for (const node of exact) {
+          if (node.id === initial[0].id) continue;
+          const candidate = toMedia(node, "TITLE_SEARCH");
+          if (seen.has(candidate.id) || !likelySameFranchise(root, candidate)) continue;
+          seen.add(candidate.id);
+          related.push(candidate);
+        }
+        if (initial[0].title.romaji && inferPart(initial[0].title).kind === "whole") {
+          const base = initial[0].title.romaji;
+          const variantQueries = [
+            ...Array.from({ length: 7 }, (_, i) => {
+              const n = i + 2;
+              const suffix = n % 10 === 1 && n % 100 !== 11 ? "st" : n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : "th";
+              return `${base} ${n}${suffix} Season`;
+            }),
+            `${base} Movie`
+          ];
+          for (const q of variantQueries) {
+            const variants = await request(q);
+            for (const node of variants) {
+              const candidate = toMedia(node, "TITLE_VARIANT");
+              if (candidate.id !== root.id && !seen.has(candidate.id) && likelySameFranchise(root, candidate)) {
+                seen.add(candidate.id);
+                related.push(candidate);
+              }
+            }
+          }
+        }
+        if (initial[0].title.romaji) {
+          const sourceRes = await fetchImpl("https://graphql.anilist.co", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ query: MANGA_QUERY, variables: { q: initial[0].title.romaji } })
+          });
+          if (sourceRes.ok) {
+            const sourceData = await sourceRes.json();
+            const source = (sourceData.data?.Page?.media ?? []).map((m) => toMedia(m)).find((m) => likelySameFranchise(root, m));
+            const sourceRaw = (sourceData.data?.Page?.media ?? []).find((m) => source && `anilist-${m.id}` === source.id);
+            if (sourceRaw) {
+              for (const candidate of sourceAnimeRelations(root, sourceRaw)) {
+                if (!seen.has(candidate.id)) {
+                  seen.add(candidate.id);
+                  related.push(candidate);
+                }
+              }
+            }
+          }
+        }
+        return initial.map((m) => {
+          const media = toMedia(m);
+          if (m.id !== initial[0].id) return media;
+          return related.length ? { ...media, relatedMedia: related } : media;
+        });
+      }
+    };
+  }
+
+  // src/providers/animethemes.ts
+  function role(type) {
+    if (type === "OP") return "opening";
+    if (type === "ED") return "ending";
+    return null;
+  }
+  function partFor(media) {
+    return media.partRef ?? { kind: "whole" };
+  }
+  function animeThemesProvider(fetchImpl = fetch) {
+    const wait = createRateLimiter(700);
+    return {
+      name: "animethemes",
+      async discover(media) {
+        if (media.type !== "anime") return [];
+        const mal = media.externalIds.mal;
+        if (!mal) return [];
+        const query = `query FindAnime($ids: [Int!]) {
+        findAnimeByExternalSite(site: MAL, id: $ids) {
+          id slug
+          title { romaji english native }
+          animethemes {
+            id slug type sequence
+            song { id title { romaji native } performances { relevance alias as artist { id name { main native } } member { id name { main native } } } }
+            animethemeentries { id version episodes notes }
+          }
+        }
+      }`;
+        await wait();
+        const res = await fetchImpl("https://graphql.animethemes.moe/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Origin: "https://graphql.animethemes.moe",
+            Referer: "https://graphql.animethemes.moe/",
+            "User-Agent": "MMDE-prototype/0.2"
+          },
+          body: JSON.stringify({ query, variables: { ids: [Number(mal)] }, operationName: "FindAnime" })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status} from AnimeThemes GraphQL`);
+        const body = await res.json();
+        if (body.errors?.length && !body.data?.findAnimeByExternalSite?.length) {
+          throw new Error(`GraphQL: ${body.errors.map((e) => e.message ?? "unknown error").join("; ")}`);
+        }
+        const anime = body.data?.findAnimeByExternalSite?.[0];
+        if (!anime) return [];
+        const out = [];
+        const seen = /* @__PURE__ */ new Set();
+        for (const theme of anime.animethemes ?? []) {
+          if (!theme.id || seen.has(theme.id)) continue;
+          seen.add(theme.id);
+          const r = role(theme.type);
+          const title = theme.song?.title?.romaji?.trim() || theme.song?.title?.native?.trim();
+          if (!r || !title) continue;
+          const artists = (theme.song?.performances ?? []).sort((a, b) => (a.relevance ?? 999) - (b.relevance ?? 999)).flatMap((p) => [p.artist?.name?.main, p.artist?.name?.native, p.member?.name?.main, p.member?.name?.native]).map((x) => x?.trim()).filter((x) => !!x).filter((x, i, a) => a.indexOf(x) === i);
+          const position = theme.sequence ? `${theme.type}${theme.sequence}` : theme.type ?? void 0;
+          const entry = (theme.animethemeentries ?? [])[0];
+          const context = [entry?.episodes ? `episodes ${entry.episodes}` : "", entry?.notes ?? ""].filter(Boolean).join("; ");
+          out.push({
+            part: partFor(media),
+            role: r,
+            position,
+            title,
+            artists,
+            evidence: {
+              provider: "animethemes",
+              url: anime.slug ? `https://animethemes.moe/anime/${anime.slug}` : "https://animethemes.moe/",
+              quote: context || void 0,
+              fetchedAt: (/* @__PURE__ */ new Date()).toISOString()
+            }
+          });
+        }
+        return out;
+      }
+    };
   }
 
   // src/providers/curated.ts
@@ -255,20 +494,46 @@
   }
 
   // src/providers/musicbrainz.ts
-  function musicBrainzResolver(userAgent, fetchImpl = fetch) {
-    const wait = createRateLimiter(1100);
+  function sortNameToName(sortName) {
+    const [last, first] = sortName.split(",").map((s) => s.trim());
+    return last && first ? `${first} ${last}` : sortName.trim();
+  }
+  function creditNames(r) {
+    const names = /* @__PURE__ */ new Set();
+    for (const c of r["artist-credit"] ?? []) {
+      if (c.name) names.add(c.name);
+      if (c.artist?.name) names.add(c.artist.name);
+      if (c.artist?.["sort-name"]) names.add(sortNameToName(c.artist["sort-name"]));
+    }
+    return [...names];
+  }
+  function musicBrainzResolver(userAgent, fetchImpl = fetch, opts = {}) {
+    const wait = createRateLimiter(opts.intervalMs ?? 1100);
+    const backoff = opts.backoffMs ?? 2e3;
+    const retries = opts.retries ?? 2;
+    const clean = (s) => s.replace(/"/g, "");
+    async function search(query) {
+      const url = `https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(query)}&fmt=json&limit=25&inc=isrcs+artist-credits`;
+      for (let attempt = 0; ; attempt++) {
+        await wait();
+        const res = await fetchImpl(url, { headers: { ...userAgent ? { "User-Agent": userAgent } : {}, Accept: "application/json" } });
+        if (res.status === 503 && attempt < retries) {
+          await new Promise((r) => setTimeout(r, backoff * (attempt + 1)));
+          continue;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status} from MusicBrainz`);
+        return (await res.json()).recordings ?? [];
+      }
+    }
     return {
       name: "musicbrainz",
       async resolve(title, artists) {
-        await wait();
-        const q = `recording:"${title.replace(/"/g, "")}"` + (artists[0] ? ` AND artist:"${artists[0].replace(/"/g, "")}"` : "");
-        const url = `https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(q)}&fmt=json&limit=10&inc=isrcs`;
-        const res = await fetchImpl(url, { headers: { ...userAgent ? { "User-Agent": userAgent } : {}, Accept: "application/json" } });
-        if (!res.ok) throw new Error(`HTTP ${res.status} from MusicBrainz`);
-        const data = await res.json();
-        return (data.recordings ?? []).map((r) => ({
+        const byTitle = `recording:"${clean(title)}"`;
+        let found = artists[0] ? await search(`${byTitle} AND artist:"${clean(artists[0])}"`) : [];
+        if (found.length === 0) found = await search(byTitle);
+        return found.map((r) => ({
           title: r.title,
-          artists: (r["artist-credit"] ?? []).map((a) => a.name),
+          artists: creditNames(r),
           durationSec: r.length ? Math.round(r.length / 1e3) : void 0,
           mbid: r.id,
           isrcs: r.isrcs ?? [],
@@ -315,15 +580,15 @@ ${text}`;
     for (const it of items) {
       const title = typeof it.title === "string" ? it.title.trim() : "";
       const quote = typeof it.quote === "string" ? it.quote.trim() : "";
-      const role = it.role;
+      const role2 = it.role;
       const part = it.part;
-      if (!title || !quote || !ROLES.has(role) || !part || !PART_KINDS.has(part.kind ?? "")) continue;
+      if (!title || !quote || !ROLES.has(role2) || !part || !PART_KINDS.has(part.kind ?? "")) continue;
       const nq = normalizeTitle(quote.replace(/\s+/g, " "));
       if (!nq || !haystack.includes(nq)) continue;
       if (!nq.includes(normalizeTitle(title))) continue;
       const artists = Array.isArray(it.artists) ? it.artists.filter((a) => typeof a === "string") : [];
       const ref = { kind: part.kind, ...typeof part.number === "number" ? { number: part.number } : {} };
-      out.push({ part: ref, role, position: typeof it.position === "string" ? it.position : void 0, title, artists, evidence: { provider, url, quote, fetchedAt: now } });
+      out.push({ part: ref, role: role2, position: typeof it.position === "string" ? it.position : void 0, title, artists, evidence: { provider, url, quote, fetchedAt: now } });
     }
     return out;
   }
@@ -383,7 +648,7 @@ ${text}`;
     const titleSim = similarity(normalizeTitle(claim.title), normalizeTitle(cand.title));
     const claimArtists = claim.artists.map(normalizeArtist).filter(Boolean);
     const candArtists = cand.artists.map(normalizeArtist).filter(Boolean);
-    const artistHit = claimArtists.length === 0 ? 0 : claimArtists.filter((a) => candArtists.some((c) => similarity(a, c) >= 0.85)).length / claimArtists.length;
+    const artistHit = claimArtists.length === 0 ? 0 : claimArtists.filter((a) => candArtists.some((c) => sameArtist(a, c))).length / claimArtists.length;
     let score = titleSim * 0.55 + artistHit * 0.4;
     reasons.push(`title ${titleSim.toFixed(2)}`, `artist ${artistHit.toFixed(2)}`);
     if (claim.durationSec && cand.durationSec && claimVersion !== "tv_size") {
@@ -414,14 +679,29 @@ ${text}`;
     const part = `${c.part.kind}:${c.part.number ?? "-"}`;
     return [part, c.role, normalizeTitle(c.title), classifyVersion(c.title)].join("|");
   }
+  function discoveryTargets(media) {
+    const seen = /* @__PURE__ */ new Set();
+    const out = [];
+    const add = (m) => {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        out.push(m);
+      }
+    };
+    add(media);
+    for (const related of media.relatedMedia ?? []) add(related);
+    return out;
+  }
   async function collectClaims(media, providers) {
     const errors = [];
     const claims = [];
     for (const p of providers) {
-      try {
-        claims.push(...await p.discover(media));
-      } catch (e) {
-        errors.push(`${p.name}: ${e instanceof Error ? e.message : String(e)}`);
+      for (const target of discoveryTargets(media)) {
+        try {
+          claims.push(...await p.discover(target));
+        } catch (e) {
+          errors.push(target.id === media.id ? `${p.name}: ${e instanceof Error ? e.message : String(e)}` : `${p.name} [${target.title}]: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
     return { claims, errors };
@@ -429,10 +709,7 @@ ${text}`;
   async function buildTracks(media, claims, resolver) {
     const errors = [];
     const groups = /* @__PURE__ */ new Map();
-    for (const c of claims) {
-      const k = groupKey(c);
-      groups.set(k, [...groups.get(k) ?? [], c]);
-    }
+    for (const c of claims) groups.set(groupKey(c), [...groups.get(groupKey(c)) ?? [], c]);
     const tracks = [];
     let n = 0;
     for (const group of groups.values()) {
@@ -443,9 +720,12 @@ ${text}`;
       const merged = { ...first, artists };
       let recording;
       let matchScore;
+      let matchNote;
       if (resolver) {
         try {
-          const m = bestMatch(merged, await resolver.resolve(first.title, artists));
+          const candidates = await resolver.resolve(first.title, artists);
+          const m = bestMatch(merged, candidates);
+          matchNote = describeMatch(merged, candidates);
           if (m) {
             recording = m.candidate;
             matchScore = m.result.score;
@@ -467,12 +747,26 @@ ${text}`;
         version: classifyVersion(first.title),
         recording: matched ? recording : void 0,
         matchScore,
+        matchNote,
         confidence: Math.round(confidence * 100) / 100,
         status,
         evidence
       });
     }
     return { tracks, errors };
+  }
+  function describeMatch(claim, candidates) {
+    if (candidates.length === 0) return "resolver returned 0 candidates";
+    let top = candidates[0];
+    let topResult = scoreMatch(claim, top);
+    for (const c of candidates.slice(1)) {
+      const r = scoreMatch(claim, c);
+      if (r.score > topResult.score) {
+        top = c;
+        topResult = r;
+      }
+    }
+    return `${candidates.length} candidates; top "${top.title}" - ${top.artists.join(", ") || "unknown"} score ${topResult.score.toFixed(2)} (${topResult.reasons.join(", ")})`;
   }
 
   // src/links/platforms.ts
@@ -511,19 +805,22 @@ ${text}`;
   var msg = (e) => e instanceof Error ? e.message : String(e);
   async function runDiscovery(media, deps, onStep) {
     const errors = [];
-    onStep("media", "done", media.title);
+    const targets = discoveryTargets(media);
+    onStep("media", "done", `${media.title} \xB7 ${targets.length} related productions`);
     onStep("themes", "running");
     const collected = await collectClaims(media, deps.providers);
     errors.push(...collected.errors);
-    onStep("themes", "done", `${collected.claims.length} claims from ${deps.providers.length} sources`);
+    onStep("themes", "done", `${collected.claims.length} claims from ${deps.providers.length} sources across ${targets.length} productions`);
     onStep("releases", "running");
     const releases = [];
     for (const p of deps.providers) {
       if (!p.releases) continue;
-      try {
-        releases.push(...await p.releases(media));
-      } catch (e) {
-        errors.push(`${p.name} (releases): ${msg(e)}`);
+      for (const target of targets) {
+        try {
+          releases.push(...await p.releases(target));
+        } catch (e) {
+          errors.push(`${p.name} (releases) [${target.title}]: ${msg(e)}`);
+        }
       }
     }
     onStep("releases", "done", `${releases.length} releases`);
@@ -540,7 +837,6 @@ ${text}`;
           resolved.push(...await lr.resolve(t));
         } catch (e) {
           errors.push(`${lr.name}: ${msg(e)}`);
-          break;
         }
       }
       tracks.push({ ...t, links: buildLinks(t, resolved) });
@@ -589,36 +885,36 @@ ${text}`;
     const view = (r) => ({ ...r, groups: organize(r.tracks) });
     return {
       modeLabel: "direct in browser (no server)",
-      settings: {
-        get: readSettings,
-        set: (s) => {
-          try {
-            store?.setItem(SETTINGS_KEY, JSON.stringify(s));
-          } catch {
-          }
+      settings: { get: readSettings, set: (s) => {
+        try {
+          store?.setItem(SETTINGS_KEY, JSON.stringify(s));
+        } catch {
         }
-      },
+      } },
       async search(q) {
         const st = readSettings();
         const resolvers = [seedMediaResolver(opts.seeds)];
         if (st.live) resolvers.push(aniListResolver(f));
         const results = [];
         const errors = [];
-        const seen = /* @__PURE__ */ new Set();
         for (const r of resolvers) {
           try {
-            for (const m of await r.search(q)) {
-              const k = normalizeTitle(m.title);
-              if (!seen.has(k)) {
-                seen.add(k);
-                results.push(m);
-              }
-            }
+            results.push(...await r.search(q));
           } catch (e) {
             errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`);
           }
         }
-        return { results, errors, sources: resolvers.map((r) => r.name) };
+        let merged = mergeMediaResults(results);
+        const canonical = merged[0];
+        const anilist = resolvers.find((r) => r.name === "anilist");
+        if (canonical && anilist) {
+          try {
+            merged = mergeMediaResults([...merged, ...await anilist.search(canonical.title)]);
+          } catch (e) {
+            errors.push(`anilist enrichment: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+        return { results: merged, errors, sources: resolvers.map((r) => r.name) };
       },
       async getResult(id) {
         const r = memory.get(id) ?? readResults()[id];
@@ -627,20 +923,21 @@ ${text}`;
       async discover(media, onJob) {
         const st = readSettings();
         const providers = opts.seeds.map((s) => curatedProvider(s));
+        if (st.live) providers.push(animeThemesProvider(f));
         if (st.live && st.anthropicKey) providers.push(wikiLlmProvider({ complete: anthropicComplete(st.anthropicKey, void 0, f, true), fetchImpl: f }));
         const steps = newSteps();
         const emit = () => onJob({ steps: steps.map((s) => ({ ...s })) });
         emit();
-        const result = await runDiscovery(
-          media,
-          { providers, recordingResolver: st.live ? musicBrainzResolver(null, f) : void 0, linkResolvers: [] },
-          (key, state, detail) => {
-            const s = steps.find((x) => x.key === key);
-            s.state = state;
-            s.detail = detail;
-            emit();
-          }
-        );
+        const result = await runDiscovery(media, {
+          providers,
+          recordingResolver: st.live ? musicBrainzResolver(null, f) : void 0,
+          linkResolvers: []
+        }, (key, state, detail) => {
+          const s = steps.find((x) => x.key === key);
+          s.state = state;
+          s.detail = detail;
+          emit();
+        });
         memory.set(media.id, result);
         try {
           const all = readResults();
@@ -721,6 +1018,7 @@ ${text}`;
     for (const t of r.tracks) {
       const part = t.part.number != null ? `${t.part.kind} ${t.part.number}` : t.part.kind;
       lines.push(`- [${t.status}] ${part} / ${t.role}${t.position ? " " + t.position : ""}: "${t.title}" - ${t.artists.join(", ") || "unknown"} | version=${t.version} confidence=${t.confidence} matchScore=${t.matchScore ?? "none"}` + (t.recording ? ` | mbid=${t.recording.mbid ?? "-"} isrc=${t.recording.isrcs.join(",") || "-"}` : " | no recording match"));
+      if (t.matchNote) lines.push(`    match: ${t.matchNote}`);
       for (const e of t.evidence) lines.push(`    evidence: ${e.provider} ${e.url ?? "(no url)"}${e.quote ? ` "${clip(e.quote)}"` : ""}`);
       const resolved = t.links.filter((l) => l.kind === "resolved").map((l) => l.platform);
       lines.push(`    links: ${resolved.length ? "resolved=" + resolved.join(",") : "all search links (none resolved)"}`);
