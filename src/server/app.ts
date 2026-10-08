@@ -208,7 +208,10 @@ export function createApp(deps: AppDeps): Server {
         const film = (url.searchParams.get('film') ?? '').trim();
         const artists = (url.searchParams.get('artist') ?? '').split('|').map((x) => x.trim()).filter(Boolean).slice(0, 4);
         if (title.length < 1 || title.length > 140 || film.length > 140) return send(res, 400, { error: 'invalid title or film' });
-        try { return send(res, 200, await deps.trackLinks({ title, artists, film })); }
+        const lenRaw = url.searchParams.get('length'); const yrRaw = url.searchParams.get('year');
+        const lengthSec = lenRaw && /^\d{1,4}$/.test(lenRaw) && Number(lenRaw) > 0 ? Number(lenRaw) : undefined;
+        const year = yrRaw && /^\d{4}$/.test(yrRaw) ? Number(yrRaw) : undefined;
+        try { return send(res, 200, await deps.trackLinks({ title, artists, film, lengthSec, year })); }
         catch (e) { return send(res, 502, { error: `track link lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/albums') {
