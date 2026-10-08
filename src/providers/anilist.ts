@@ -1,5 +1,6 @@
 import type { Media, PartRef } from '../domain/types.ts';
 import { createRateLimiter, type MediaResolver } from './types.ts';
+import { normalizeTitle } from '../matching/normalize.ts';
 
 // AniList is an identity/relationship resolver, not MMDE's music database.
 // Keep its response short-lived/in-memory and use the IDs to fan out to other providers.
@@ -63,6 +64,12 @@ function toMedia(m: AniNode, relationType?: string): Media {
   };
 }
 
+function likelySameFranchise(root: Media, candidate: Media): boolean {
+  const roots = [root.title, ...root.altTitles].map(normalizeTitle).filter((x) => x.length >= 10);
+  const candidates = [candidate.title, ...candidate.altTitles].map(normalizeTitle).filter(Boolean);
+  return roots.some((r) => candidates.some((c) => c.includes(r) || r.includes(c)));
+}
+
 function franchiseRelations(m: AniMedia): Media[] {
   const edges = m.relations?.edges ?? [];
   const allowed = new Set(['PREQUEL', 'SEQUEL', 'PARENT', 'SIDE_STORY', 'SPIN_OFF', 'OTHER']);
@@ -84,18 +91,37 @@ export function aniListResolver(fetchImpl: typeof fetch = fetch): MediaResolver 
   return {
     name: 'anilist',
     async search(query: string): Promise<Media[]> {
-      await wait();
-      const res = await fetchImpl('https://graphql.anilist.co', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ query: QUERY, variables: { q: query } }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status} from AniList`);
-      const data = (await res.json()) as { data?: { Page?: { media?: AniMedia[] } } };
-      return (data.data?.Page?.media ?? []).map((m) => {
+      const request = async (q: string): Promise<AniMedia[]> => {
+        await wait();
+        const res = await fetchImpl('https://graphql.anilist.co', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ query: QUERY, variables: { q } }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status} from AniList`);
+        const data = (await res.json()) as { data?: { Page?: { media?: AniMedia[] } } };
+        return data.data?.Page?.media ?? [];
+      };
+
+      const initial = await request(query);
+      if (!initial.length) return [];
+      const root = toMedia(initial[0]!);
+      const related = franchiseRelations(initial[0]!);
+      // A second exact-title pass catches franchise entries that AniList does not
+      // expose as direct relations from the first season (a real-world data quirk).
+      const exact = initial[0]!.title.romaji ? await request(initial[0]!.title.romaji) : [];
+      const seen = new Set(related.map((m) => m.id));
+      for (const node of exact) {
+        if (node.id === initial[0]!.id) continue;
+        const candidate = toMedia(node, 'TITLE_SEARCH');
+        if (seen.has(candidate.id) || !likelySameFranchise(root, candidate)) continue;
+        seen.add(candidate.id);
+        related.push(candidate);
+      }
+      return initial.map((m) => {
         const media = toMedia(m);
-        const relatedMedia = franchiseRelations(m);
-        return relatedMedia.length ? { ...media, relatedMedia } : media;
+        if (m.id !== initial[0]!.id) return media;
+        return related.length ? { ...media, relatedMedia: related } : media;
       });
     },
   };
