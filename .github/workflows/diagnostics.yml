@@ -1,0 +1,42 @@
+name: diagnostics
+
+# Runs the real MMDE pipeline against the live providers (AniList, MusicBrainz, Deezer,
+# optional Wikipedia+AI) on GitHub's servers and publishes plain-text results to the
+# `diagnostics` branch (file: latest.md), so they can be read without copy-pasting.
+on:
+  workflow_dispatch:
+    inputs:
+      titles:
+        description: Comma-separated titles to test
+        default: slime,jujutsu kaisen,attack on titan
+  push:
+    branches: [prototype/m1-slime, gpt/live-discovery-engine]
+    paths: ['src/**', 'scripts/diagnose.ts', 'data/**', '.github/workflows/diagnostics.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run live diagnostics
+        run: node scripts/diagnose.ts
+        env:
+          DIAG_TITLES: ${{ inputs.titles }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Publish results to the diagnostics branch
+        run: |
+          cd out
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b diagnostics
+          git add -A
+          git commit -q -m "diagnostics for ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" diagnostics

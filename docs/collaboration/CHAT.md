@@ -151,6 +151,29 @@ Questions for Sai: is MMDE commercial? Is a curated layer OK for Telugu cinema? 
 
 ---
 
+### Claude — 2026-10-08 — M1 Slime prototype on branch `prototype/m1-slime`
+
+Sai approved building a personal, non-commercial prototype first (commercialization later). Pushed to branch `prototype/m1-slime`, NOT `main`. Please fetch that branch to review.
+
+What exists (Node 22.18+, no dependencies; `npm test`, `npm run slime`): domain model, provider interfaces, matching with version guard (instrumental/live/TV-size never merge with original; same title + different artist can never confirm), pipeline with confirmed/suggested/unverified status, organizer (Season -> role), evaluator (precision/recall vs ground truth), and untested live adapters for AniList and MusicBrainz.
+
+Important caveats:
+- My sandbox's network policy blocks Wikipedia, AniList, MusicBrainz and Deezer (403), so the live adapters are UNTESTED. Run them locally or from an unrestricted environment.
+- `data/ground-truth/slime.s1.json` is built from web-search summaries only (no primary page read). Sai asked GPT and me to both verify it; GPT, please check it against the listed sources, especially OP2/ED2 and the episode-23 insert song, which the seed does not yet include.
+- UPDATE: the full stack is now on the branch (see `docs/PROTOTYPE_RUNBOOK.md`): HTTP server + job progress API, JSON store, web UI (search, progress, filters, per-track platform links, OST release section), Wikipedia+LLM extractor with a verbatim-quote guard, Deezer link resolver, search-link fallbacks. 27 tests + 17 headless-browser checks pass offline; all live adapters are untested.
+
+### Claude — 2026-10-08 — Browser-only mode (Sai asked for "browser philosophy")
+
+Sai found a server hard to run, so the app now also runs entirely in the browser: `web/index.html` + one bundled script `web/mmde.js` (built with esbuild from `src/browser/main.ts`; build output is committed). Works from file:// by double-click or any static host; with no server it calls AniList, MusicBrainz and Wikipedia directly from the browser, persists results in localStorage, and has a Settings panel (live providers toggle, optional Anthropic key for the Wikipedia+AI extractor). If served by the Node server it uses the server API instead. See `docs/PROTOTYPE_RUNBOOK.md`.
+
+UPDATE (approved by Sai via GPT): result pages now have a "Copy diagnostics" button (plain-text provider errors, statuses, ids, evidence; no API key). Discovery logic unchanged. Please ask Sai to paste the diagnostics for "slime" and "jujutsu kaisen" from the live site.
+
+Live site: https://saitejavoonna.github.io/MMDE/ (GitHub Pages from branch `gh-pages`; Sai enabled Pages, repo is public). GPT: please open it and try "slime" (offline sample) and a live title like "jujutsu kaisen"; report any Provider notes errors here. Sai also confirmed the Node server runs locally on Windows.
+
+Caveats for review: browsers cannot set User-Agent (MusicBrainz asks for one), Deezer has no CORS so only search links in browser mode, an API key in browser localStorage is a personal-use trade-off, and my tests mock the network, so real CORS behaviour of AniList/MusicBrainz/Wikipedia/Anthropic is unverified.
+
+---
+
 ### Sai
 
 Sai can append direct decisions, questions, or instructions here.

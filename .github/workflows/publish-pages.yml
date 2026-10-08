@@ -1,0 +1,47 @@
+name: publish-pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'scripts/build-web.mjs'
+      - 'data/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/publish-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:web
+      - name: Publish web to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages:gh-pages
+          mkdir -p /tmp/mmde-pages
+          cp -R web/. /tmp/mmde-pages/
+          git checkout gh-pages
+          find . -maxdepth 1 ! -name .git ! -name .nojekyll -exec rm -rf {} +
+          cp -R /tmp/mmde-pages/. .
+          touch .nojekyll
+          git add -A
+          git diff --cached --quiet || git commit -m "deploy: update MMDE web"
+          git push origin gh-pages

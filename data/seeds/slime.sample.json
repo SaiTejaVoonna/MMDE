@@ -1,0 +1,95 @@
+{
+  "_status": "UNVERIFIED SAMPLE. Built from web-search result summaries (2026-10-08), not from checked primary pages. Must be verified against official sources before it counts as ground truth. Season 1 plus one movie release only.",
+  "media": {
+    "id": "slime",
+    "type": "anime",
+    "title": "That Time I Got Reincarnated as a Slime",
+    "altTitles": [
+      "Tensei shitara Slime Datta Ken"
+    ],
+    "year": 2018,
+    "externalIds": {}
+  },
+  "claims": [
+    {
+      "part": {
+        "kind": "season",
+        "number": 1
+      },
+      "role": "opening",
+      "position": "OP1",
+      "title": "Nameless Story",
+      "artists": [
+        "Takuma Terashima"
+      ],
+      "source": "https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)"
+    },
+    {
+      "part": {
+        "kind": "season",
+        "number": 1
+      },
+      "role": "opening",
+      "position": "OP2",
+      "title": "Meguru Mono",
+      "artists": [
+        "Takuma Terashima"
+      ],
+      "source": "https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)"
+    },
+    {
+      "part": {
+        "kind": "season",
+        "number": 1
+      },
+      "role": "ending",
+      "position": "ED1",
+      "title": "Another colony",
+      "artists": [
+        "TRUE"
+      ],
+      "source": "https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)"
+    },
+    {
+      "part": {
+        "kind": "season",
+        "number": 1
+      },
+      "role": "ending",
+      "position": "ED2",
+      "title": "Little Soldier",
+      "artists": [
+        "Azusa Tadokoro"
+      ],
+      "source": "https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)"
+    },
+    {
+      "part": {
+        "kind": "season",
+        "number": 1
+      },
+      "role": "insert",
+      "position": "ep23",
+      "title": "Boku no Naka no Kimi e",
+      "artists": [
+        "TRUE"
+      ],
+      "source": "https://tensura.fandom.com/wiki/Season_1/Music (via search summary; primary page not read)"
+    }
+  ],
+  "releases": [
+    {
+      "title": "Eien no Kizuna: That Time I Got Reincarnated as a Slime the Movie Scarlet Bond Original Soundtrack",
+      "artists": [
+        "Hitoshi Fujima (Elements Garden)"
+      ],
+      "kind": "ost",
+      "label": "Lantis",
+      "trackCount": 46,
+      "part": {
+        "kind": "movie"
+      },
+      "source": "https://otakumode.com/shop/632a6d81f1c8c1001f7073ce (via search summary; 2 discs, 46 BGM tracks; CD release date not confirmed)"
+    }
+  ]
+}

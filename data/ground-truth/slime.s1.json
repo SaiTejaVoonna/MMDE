@@ -1,0 +1,18 @@
+{
+  "_note": "Ground truth for the Slime Season 1 accuracy test. Verification levels are honest: nothing here was read from a primary page; it comes from web-search result summaries on 2026-10-08. A human (Sai/GPT) should confirm against the sources below before treating it as final.",
+  "media": "slime",
+  "scope": "Season 1 only (24 episodes, 2018-10-02 to 2019-03-19, per search summary)",
+  "sources": [
+    "https://tensura.fandom.com/wiki/Season_1/Music",
+    "https://en.wikipedia.org/wiki/That_Time_I_Got_Reincarnated_as_a_Slime_season_1",
+    "https://www.lyrical-nonsense.com/global/lyrics/tensei-shitara-slime-datta-ken-theme-songs/",
+    "https://www.fandompost.com/2018/07/30/that-time-i-got-reincarnated-as-a-slime-anime-adds-theme-song-performer/"
+  ],
+  "tracks": [
+    { "role": "opening", "position": "OP1", "title": "Nameless Story", "artists": ["Takuma Terashima"], "verification": "2 search summaries (fandom wiki, announcement); primary page not read", "notes": "reported eps 2-14 + OAD 1-2" },
+    { "role": "opening", "position": "OP2", "title": "Meguru Mono", "artists": ["Takuma Terashima"], "verification": "1 search summary (fandom wiki / lyrics site); primary page not read", "notes": "reported eps 15-24 + 24.5, 24.9, OAD 3-5; a second source confirms Terashima did two S1 openings" },
+    { "role": "ending", "position": "ED1", "title": "Another colony", "artists": ["TRUE"], "verification": "2 search summaries (fandom wiki, announcement); primary page not read", "notes": "reported eps 2-13 + OAD 1-2; CD single 2018-11-07 per announcement" },
+    { "role": "ending", "position": "ED2", "title": "Little Soldier", "artists": ["Azusa Tadokoro"], "verification": "1 search summary (fandom wiki / lyrics site); primary page not read", "notes": "reported eps 14-24 + 24.5, 24.9, OAD 3-5" },
+    { "role": "insert", "position": "ep23", "title": "Boku no Naka no Kimi e", "artists": ["TRUE"], "verification": "1 search summary (fandom wiki); primary page not read", "notes": "reported insert song in episode 23; NOT yet in the seed file" }
+  ]
+}
