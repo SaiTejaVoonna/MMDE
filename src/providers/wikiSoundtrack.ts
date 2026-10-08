@@ -72,14 +72,28 @@ export function parseTracklists(html: string): SoundtrackSection[] {
       tracks.push({ no, title, artists, lyricists: roles.includes('lyrics') ? splitNames(get('lyrics')) : [], lengthSec: parseLength(get('length')) });
     }
     if (!tracks.length) continue;
+    // Real pages put a generic caption ("Track Listing") on every table, so captions only count when they say something.
+    const generic = (x: string) => !x || /^track\s?-?lists?(ing)?s?$/i.test(x.trim());
     const cap = caption ? plain(caption[1]!) : '';
-    const name = cap || (label && heading && label.toLowerCase() !== heading.toLowerCase() ? `${heading} · ${label}` : label || heading || 'Track listing');
+    const parts: string[] = [];
+    for (const x of [heading, label, cap]) if (!generic(x) && !parts.some((p) => p.toLowerCase() === x.toLowerCase())) parts.push(x);
+    let name = parts.join(' · ') || 'Track listing';
+    const dup = sections.filter((x) => x.name === name || x.name.startsWith(name + ' (')).length;
+    if (dup) name = `${name} (${dup + 1})`;
     sections.push({ name, tracks });
   }
   return sections;
 }
 
 const API = 'https://en.wikipedia.org/w/api.php';
+// "Bāhubali" (TMDB) vs "Baahubali" (Wikipedia): strip accents and collapse repeated letters before comparing.
+export const foldTitle = (x: string) => normalizeTitle(x.normalize('NFD').replace(/\p{M}/gu, '')).replace(/(\p{L})\1+/gu, '$1');
+/** Spellings worth trying as Wikipedia page names: as given, accents removed, and long vowels doubled. */
+export function titleVariants(title: string): string[] {
+  const plainTitle = title.normalize('NFD').replace(/\p{M}/gu, '');
+  const doubled = title.replace(/ā/g, 'aa').replace(/ī/g, 'ii').replace(/ū/g, 'uu').replace(/Ā/g, 'Aa').normalize('NFD').replace(/\p{M}/gu, '');
+  return [...new Set([title, plainTitle, doubled])];
+}
 const wikiUrl = (title: string) => `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_')).replace(/%2F/g, '/').replace(/%28/g, '(').replace(/%29/g, ')')}`;
 
 export function wikiSoundtrack(userAgent: string, fetchImpl: typeof fetch = fetch) {
@@ -97,22 +111,27 @@ export function wikiSoundtrack(userAgent: string, fetchImpl: typeof fetch = fetc
     return parseTracklists(String(d.parse?.text ?? ''));
   };
   return {
-    async find(title: string, year?: number): Promise<Soundtrack | null> {
+    async find(title0: string, year?: number): Promise<Soundtrack | null> {
+      const variants = titleVariants(title0);
       const y = year ? ` (${year}` : '';
-      const soundtrackNames = [`${title} (soundtrack)`, ...(year ? [`${title}${y} soundtrack)`, `${title}${y} film soundtrack)`] : []), `${title} (film score)`, `${title} (score)`, `${title} (album)`, `${title} (original motion picture soundtrack)`];
-      const found = await existing(soundtrackNames);
+      const soundtrackNames = variants.flatMap((title) => [`${title} (soundtrack)`, ...(year ? [`${title}${y} soundtrack)`, `${title}${y} film soundtrack)`] : []), `${title} (film score)`, `${title} (score)`, `${title} (album)`, `${title} (original motion picture soundtrack)`]);
+      const found = await existing(soundtrackNames.slice(0, 50));
       const tryPage = async (pageTitle: string, kind: Soundtrack['pageKind']): Promise<Soundtrack | null> => {
         const sections = await tracklistsOf(pageTitle);
         return sections.length ? { page: { title: pageTitle, url: wikiUrl(pageTitle) }, pageKind: kind, sections, license: 'CC BY-SA 4.0' } : null;
       };
       for (const t of found) { const r = await tryPage(t, 'soundtrack'); if (r) return r; }
       // Search fallback: a page whose title starts with the film title and mentions soundtrack/score/album.
-      const s = await get({ action: 'query', list: 'search', srsearch: `"${title}" soundtrack`, srlimit: '6', srnamespace: '0' });
-      const want = normalizeTitle(title);
-      const hit = (s.query?.search ?? []).map((x: any) => String(x.title)).find((t: string) => /soundtrack|score|album/i.test(t) && normalizeTitle(t).startsWith(want));
+      const want = foldTitle(title0);
+      let hit: string | undefined;
+      for (const v of variants.slice(0, 2)) {
+        const s = await get({ action: 'query', list: 'search', srsearch: `${v} soundtrack`, srlimit: '8', srnamespace: '0' });
+        hit = (s.query?.search ?? []).map((x: any) => String(x.title)).find((t: string) => /soundtrack|score|album/i.test(t) && foldTitle(t).startsWith(want));
+        if (hit) break;
+      }
       if (hit) { const r = await tryPage(hit, 'soundtrack'); if (r) return r; }
       // Last resort: the film article itself (some films keep the tracklist in a Music section).
-      const filmNames = await existing([...(year ? [`${title} (${year} film)`] : []), `${title} (film)`, title]);
+      const filmNames = await existing(variants.flatMap((v) => [...(year ? [`${v} (${year} film)`] : []), `${v} (film)`, v]).slice(0, 50));
       for (const t of filmNames) { const r = await tryPage(t, 'film'); if (r) return r; }
       return null;
     },
