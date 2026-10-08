@@ -15,8 +15,8 @@ test('AnimeThemes maps structured OP/ED records into MMDE claims', async () => {
       name: 'Test Anime',
       slug: 'test-anime',
       animethemes: [
-        { id: 10, type: 'OP', sequence: 1, song: { id: 20, title: 'Opening Song', artists: [{ id: 30, name: 'Artist A' }] }, animethemeentries: [{ episodes: '1-12' }] },
-        { id: 11, type: 'ED', sequence: 1, song: { id: 21, title: 'Ending Song', artists: [{ id: 31, name: 'Artist B' }] } },
+        { id: 10, type: 'OP', sequence: 1, song: { id: 20, title: { romaji: 'Opening Song' }, artists: [{ id: 30, name: 'Artist A' }] }, animethemeentries: [{ episodes: '1-12' }] },
+        { id: 11, type: 'ED', sequence: 1, song: { id: 21, title: { romaji: 'Ending Song' }, artists: [{ id: 31, name: 'Artist B' }] } },
       ],
     }] },
   }));
