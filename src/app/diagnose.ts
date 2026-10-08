@@ -31,8 +31,8 @@ export async function diagnoseTitle(query: string, deps: DiagnoseDeps): Promise<
     catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
   }
   const mergedResults = mergeMediaResults(results);
-  const lastSearch = { query, sources: deps.mediaResolvers.map((r) => r.name), errors, count: enrichedResults.length };
   let enrichedResults = mergedResults;
+  const lastSearch = { query, sources: deps.mediaResolvers.map((r) => r.name), errors, count: enrichedResults.length };
   const canonical = enrichedResults[0];
   const anilist = deps.mediaResolvers.find((r) => r.name === 'anilist');
   if (canonical && anilist) {
