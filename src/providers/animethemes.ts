@@ -54,10 +54,17 @@ export function animeThemesProvider(fetchImpl: typeof fetch = fetch): DiscoveryP
     async discover(media: Media): Promise<TrackClaim[]> {
       if (media.type !== 'anime') return [];
       const params = new URLSearchParams({
-        q: media.title,
         'page[size]': '5',
         include: 'animesynonyms,animethemes.song.artists,animethemes.animethemeentries',
       });
+      const malId = media.externalIds.mal;
+      if (malId) {
+        params.set('filter[has]', 'resources');
+        params.set('filter[site]', 'MyAnimeList');
+        params.set('filter[external_id]', malId);
+      } else {
+        params.set('q', media.title);
+      }
       await wait();
       const res = await fetchImpl(`https://api.animethemes.moe/anime?${params}`, { headers: { Accept: 'application/json' } });
       if (!res.ok) throw new Error(`HTTP ${res.status} from AnimeThemes`);
