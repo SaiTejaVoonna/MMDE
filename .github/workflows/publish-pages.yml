@@ -38,6 +38,9 @@ jobs:
           git fetch origin gh-pages:gh-pages
           mkdir -p /tmp/mmde-pages
           cp -R web/. /tmp/mmde-pages/
+          # build-web rewrites a tracked bundle in the main worktree; discard that
+          # generated diff before switching to the deployment branch.
+          git reset --hard HEAD
           git checkout gh-pages
           find . -maxdepth 1 ! -name .git ! -name .nojekyll -exec rm -rf {} +
           cp -R /tmp/mmde-pages/. .
