@@ -20,6 +20,19 @@ export function isFilmAlbum(filmTitle: string, albumName: string): boolean {
   return film.length >= 3 && looseFold(albumName).includes(film);
 }
 
+const GENERIC_WORDS = /\b(extended|background|original|motion|picture|soundtrack|score|ost|music|from|the|film|movie|album|tracklist|track|listing|volume|vol|part)\b/g;
+/**
+ * Does a catalog album belong to a Wikipedia-named album series ("Baahubali (Original Soundtrack)")?
+ * Catalogs rename things ("Baahubali Ost - Volume 3 (Original Motion Picture Soundtrack)"), so: either the whole name is contained,
+ * or the distinctive word(s) are present AND it is a numbered volume (which keeps out the first film's albums and other films).
+ */
+export function matchesWikiAlbum(base: string, albumName: string): boolean {
+  const b = looseFold(base); const a = looseFold(albumName);
+  if (a.includes(b)) return true;
+  const distinct = b.replace(GENERIC_WORDS, ' ').replace(/\d+/g, ' ').split(/\s+/).filter((w) => w.length >= 3);
+  return distinct.length > 0 && distinct.every((w) => a.includes(w)) && /\b(volume|vol)\b/.test(a);
+}
+
 /**
  * Wikipedia often names the real albums in its section titles ("Background score · Baahubali (Original Soundtrack) - Volume 1").
  * Turn those into catalog search terms, dropping the volume suffix so one search finds every volume. Max 3 distinct names.
@@ -31,7 +44,7 @@ export function extraAlbumNames(sectionNames: string[]): string[] {
     if (!/\b(soundtrack|volume|vol\.?|ost|score|original)\b/i.test(last) || n.indexOf(' · ') < 0) continue;
     const base = last.replace(/\s*[-–:,]?\s*\b(vol(ume|\.)?|part)\s*\d+\b.*$/i, '').trim();
     // A bare label like "Extended Soundtrack" names no album: something title-like must remain once generic words are removed.
-    const distinct = looseFold(base).replace(/\b(extended|background|original|motion|picture|soundtrack|score|ost|music|from|the|film|movie|album|tracklist|track|listing|volume|vol|part)\b/g, '').replace(/\d+/g, '').replace(/\s+/g, '');
+    const distinct = looseFold(base).replace(GENERIC_WORDS, '').replace(/\d+/g, '').replace(/\s+/g, '');
     if (looseFold(base).length >= 6 && distinct.length >= 3 && !out.has(looseFold(base))) out.set(looseFold(base), base);
   }
   return [...out.values()].slice(0, 3);
@@ -78,9 +91,8 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
           apple(`https://itunes.apple.com/search?${new URLSearchParams({ term: name, entity: 'album', limit: '25' })}`),
           deezer(`https://api.deezer.com/search/album?${new URLSearchParams({ q: name, limit: '25' })}`),
         ]);
-        const fold = looseFold(name);
-        if (ea.status === 'fulfilled') extraApple.push(...(ea.value.results ?? []).filter((r: any) => looseFold(String(r.collectionName ?? '')).startsWith(fold)));
-        if (ed.status === 'fulfilled') extraDeezer.push(...(ed.value.data ?? []).filter((r: any) => looseFold(String(r.title ?? '')).startsWith(fold)));
+        if (ea.status === 'fulfilled') extraApple.push(...(ea.value.results ?? []).filter((r: any) => matchesWikiAlbum(name, String(r.collectionName ?? ''))));
+        if (ed.status === 'fulfilled') extraDeezer.push(...(ed.value.data ?? []).filter((r: any) => matchesWikiAlbum(name, String(r.title ?? ''))));
       }
       if (a.status === 'rejected' && d.status === 'rejected' && p.status === 'rejected') throw new Error('Apple Music and Deezer lookups failed');
       const out: CatalogAlbum[] = [];
