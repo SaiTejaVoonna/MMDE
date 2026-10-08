@@ -55,7 +55,14 @@ export function createApp(deps: AppDeps): Server {
       try { results.push(...await r.search(q)); }
       catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
     }
-    return { results: mergeMediaResults(results), errors, sources: deps.mediaResolvers.map((r) => r.name) };
+        let merged = mergeMediaResults(results);
+    const canonical = merged[0];
+    const anilist = deps.mediaResolvers.find((r) => r.name === 'anilist');
+    if (canonical && anilist) {
+      try { merged = mergeMediaResults([...merged, ...(await anilist.search(canonical.title))]); }
+      catch (e) { errors.push(`anilist enrichment: ${e instanceof Error ? e.message : String(e)}`); }
+    }
+    return { results: merged, errors, sources: deps.mediaResolvers.map((r) => r.name) };
   }
 
   async function serveStatic(pathname: string, res: ServerResponse) {
