@@ -179,3 +179,18 @@ test('tmdbDetails: composers and alternate titles come back with the details (mo
   assert.deepEqual(tv.composers, ['Hitoshi Hanagata']);
   assert.deepEqual(tv.altTitles, ['転生したらスライムだった件', 'Tensei shitara Slime Datta Ken']);
 });
+
+import { fuzzyByWords } from '../src/providers/tmdb.ts';
+test('"irregular high" finds "The Irregular at Magic High School" by searching words separately', async () => {
+  const f = (async (u: string) => {
+    const q = new URL(String(u)).searchParams.get('query');
+    const tv = String(u).includes('/search/tv');
+    const results = q === 'irregular' && tv ? [{ id: 1, name: 'The Irregular at Magic High School', popularity: 40, original_language: 'ja' }, { id: 2, name: 'Irregular Hunter', popularity: 90 }]
+      : q === 'high' && tv ? [{ id: 3, name: 'High School DxD', popularity: 70 }, { id: 1, name: 'The Irregular at Magic High School', popularity: 40 }] : [];
+    return new Response(JSON.stringify({ results }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const out = await tmdbResolver('t', f).search('irregular high');
+  assert.equal(out[0]?.title, 'The Irregular at Magic High School', 'contains both words, so it outranks single-word matches');
+  assert.ok(!out.some((m) => m.title === 'High School DxD' && out.indexOf(m) === 0));
+  assert.deepEqual(await fuzzyByWords('naruto', (async () => []) as never), [], 'single-word queries are not fuzzed');
+});

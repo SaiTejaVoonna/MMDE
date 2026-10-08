@@ -78,3 +78,46 @@ test('/api/soundtrack-merged: season params are validated and are part of the ca
     assert.equal(s2.counts.total, 1); assert.deepEqual(s2.sections.map((x: { name: string }) => x.name), ['Apple Music: Show season 2 OST']);
   } finally { await new Promise<void>((r) => s.close(() => r())); }
 });
+
+import { animeThemesSource, franchiseKey, pickFranchise } from '../src/providers/animeThemesSearch.ts';
+
+const FIRE = { anime: [
+  { name: 'Enen no Shouboutai', year: 2019, season: 'Summer', slug: 'enen_no_shouboutai', animethemes: [{ slug: 'OP1', type: 'OP', sequence: 1, song: { title: 'Inferno', artists: [{ name: 'Mrs. GREEN APPLE' }] } }, { slug: 'ED1', type: 'ED', sequence: 1, song: { title: 'veil', artists: [{ name: 'Keina Suda' }] } }] },
+  { name: 'Enen no Shouboutai: Ni no Shou', year: 2020, season: 'Summer', slug: 'enen_no_shouboutai_ni_no_shou', animethemes: [{ slug: 'OP1', type: 'OP', sequence: 1, song: { title: 'SPARK-AGAIN', artists: [{ name: 'Aimer' }] } }] },
+  { name: 'Some Other Show', year: 1999, slug: 'other', animethemes: [{ slug: 'OP1', type: 'OP', song: { title: 'Nope', artists: [] } }] },
+] };
+
+test('pickFranchise: the top hit picks the franchise, but only if a year agrees with TMDB', () => {
+  assert.equal(franchiseKey('Enen no Shouboutai: Ni no Shou'), 'enen no shouboutai');
+  assert.equal(pickFranchise([{ name: 'Enen no Shouboutai', year: 2019 }, { name: 'Enen no Shouboutai: Ni no Shou', year: 2020 }], 2019), 'enen no shouboutai');
+  assert.equal(pickFranchise([{ name: 'Fire Force Parody', year: 1990 }, { name: 'Enen no Shouboutai', year: 2019 }], 2019), 'enen no shouboutai', 'a same-named but unrelated older show is skipped');
+  assert.equal(pickFranchise([{ name: 'Totally Different', year: 1980 }], 2019), undefined);
+});
+
+test('animeThemesSource: returns every season of the franchise with songs, artists and links; cached', async () => {
+  let calls = 0;
+  const f = (async (u: string) => { calls++; assert.match(String(u), /api\.animethemes\.moe\/anime\?/); return new Response(JSON.stringify(FIRE), { status: 200 }); }) as unknown as typeof fetch;
+  const src = animeThemesSource('t', f);
+  const entries = await src.find('Fire Force', ['炎炎ノ消防隊'], 2019);
+  assert.deepEqual(entries.map((e) => [e.name, e.year]), [['Enen no Shouboutai', 2019], ['Enen no Shouboutai: Ni no Shou', 2020]]);
+  assert.deepEqual(entries[0]!.themes.map((t) => [t.slug, t.title, t.artists[0]]), [['OP1', 'Inferno', 'Mrs. GREEN APPLE'], ['ED1', 'veil', 'Keina Suda']]);
+  assert.equal(entries[0]!.themes[0]!.url, 'https://animethemes.moe/anime/enen_no_shouboutai/OP1');
+  await src.find('Fire Force', [], 2019); assert.equal(calls, 1);
+});
+
+test('anime season scoping with AnimeThemes: Season 1 shows only the 2019 openings/endings', async () => {
+  const at = animeThemesSource('t', (async () => new Response(JSON.stringify(FIRE), { status: 200 })) as unknown as typeof fetch);
+  const sources = { wiki: async () => null, albums: async () => [], albumTracks: async () => [], animeThemes: (t: string, a: string[], y?: number) => at.find(t, a, y) };
+  const s1 = await buildMergedSoundtrack(sources as never, 'Fire Force', 2019, { anime: true, season: { number: 1, airYear: 2019 } });
+  assert.deepEqual(s1.sections.map((s) => s.name), ['Openings and endings · Enen no Shouboutai (2019 Summer)']);
+  assert.deepEqual(s1.sections[0]!.tracks.map((t) => t.title), ['Inferno', 'veil']);
+  assert.equal(s1.season!.excluded, 1, 'the 2020 season is hidden');
+  assert.equal(s1.verified, 'title', 'AnimeThemes year-matched entries verify the title');
+  assert.ok(s1.sections[0]!.tracks.every((t) => t.confidence === 'amber'), 'one source only: amber, not red');
+  const s2 = await buildMergedSoundtrack(sources as never, 'Fire Force', 2019, { anime: true, season: { number: 2, airYear: 2020 } });
+  assert.deepEqual(s2.sections[0]!.tracks.map((t) => t.title), ['SPARK-AGAIN']);
+  const whole = await buildMergedSoundtrack(sources as never, 'Fire Force', 2019, { anime: true });
+  assert.equal(whole.counts.total, 3);
+  const notAnime = await buildMergedSoundtrack(sources as never, 'Fire Force', 2019, {});
+  assert.equal(notAnime.counts.total, 0, 'AnimeThemes is only asked for anime');
+});

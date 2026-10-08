@@ -22,10 +22,10 @@ export type SeasonFit = 'match' | 'unspecified' | 'excluded';
  * excluded    = names only OTHER seasons
  * unspecified = no season named and no useful date: shown separately as "other music from the series"
  */
-export function classifyForSeason(name: string, releaseDate: string | undefined, season: number, airYear?: number): SeasonFit {
+export function classifyForSeason(name: string, releaseDate: string | undefined, season: number, airYear?: number, yearTolerance = 1): SeasonFit {
   const markers = seasonMarkers(name);
   if (markers.length) return markers.includes(season) ? 'match' : 'excluded';
   const year = releaseDate ? Number(releaseDate.slice(0, 4)) : NaN;
-  if (airYear && Number.isFinite(year)) return Math.abs(year - airYear) <= 1 ? 'match' : 'unspecified';
+  if (airYear && Number.isFinite(year)) return Math.abs(year - airYear) <= yearTolerance ? 'match' : yearTolerance === 0 ? 'excluded' : 'unspecified';
   return 'unspecified';
 }

@@ -20,6 +20,22 @@ export function isFilmAlbum(filmTitle: string, albumName: string, alts: string[]
   return [filmTitle, ...alts].some((t) => { const film = looseFold(t); return film.length >= 3 && name.includes(film); });
 }
 
+const NON_LATIN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Devanagari}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Malayalam}\p{Script=Kannada}\p{Script=Thai}\p{Script=Arabic}\p{Script=Cyrillic}]/u;
+/**
+ * Is a title distinctive enough that an album NAMED after it is almost certainly about the same work?
+ * Non-Latin titles ("炎炎ノ消防隊"), long titles and 3+ word titles are; "Kingdom" or "Fire Force" are not (many works share them).
+ */
+export function isDistinctiveTitle(title: string): boolean {
+  if (NON_LATIN.test(title)) return true;
+  const words = looseFold(title).split(' ').filter((w) => w && !['the', 'a', 'an', 'of', 'and', 'in', 'on', 'to'].includes(w));
+  return words.length >= 3 || looseFold(title).length >= 16;
+}
+/** Does this album's name contain one of the (distinctive) titles of the work? */
+export function nameMatchesDistinctiveTitle(albumName: string, titles: string[]): boolean {
+  const name = looseFold(albumName);
+  return titles.some((t) => isDistinctiveTitle(t) && looseFold(t).length >= 3 && name.includes(looseFold(t)));
+}
+
 /** Do two artist credits name the same person? Tolerates initials, punctuation, doubled letters ("M.M. Keeravaani" ~ "M. M. Keeravani"). */
 export function artistMatches(a: string, b: string): boolean {
   const fa = looseFold(a); const fb = looseFold(b);
@@ -116,7 +132,10 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
       if (a.status === 'rejected' && d.status === 'rejected' && p.status === 'rejected') throw new Error('Apple Music and Deezer lookups failed');
       const out: CatalogAlbum[] = [];
       if (a.status === 'fulfilled' || altApple.length) {
+        const seenIds = new Set<string>();
         for (const r of [...(a.status === 'fulfilled' ? a.value.results ?? [] : []), ...altApple]) {
+          if (r.collectionId && seenIds.has(String(r.collectionId))) continue;
+          if (r.collectionId) seenIds.add(String(r.collectionId));
           if (!r.collectionId || !isFilmAlbum(film, String(r.collectionName ?? ''), alts) || (r.trackCount ?? 0) < 2) continue;
           out.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', releaseDate: r.releaseDate ? String(r.releaseDate) : undefined });
         }

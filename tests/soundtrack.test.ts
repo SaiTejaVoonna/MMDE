@@ -244,3 +244,20 @@ test('Wikipedia titles with a note after the quotes lose the stray quote mark (t
   const [sec] = parseTracklists(html);
   assert.deepEqual(sec!.tracks.map((t) => t.title), ['Kingdom Teaser OST (Lyrics: Choir)', 'Hridayam Lopala']);
 });
+
+import { isDistinctiveTitle, nameMatchesDistinctiveTitle } from '../src/providers/catalogAlbums.ts';
+import { belongsToTitle } from '../src/app/soundtrackService.ts';
+test('distinctive titles: Japanese and long titles are strong evidence, short common ones are not', () => {
+  assert.equal(isDistinctiveTitle('炎炎ノ消防隊'), true);
+  assert.equal(isDistinctiveTitle('That Time I Got Reincarnated as a Slime'), true);
+  assert.equal(isDistinctiveTitle('Kingdom'), false); assert.equal(isDistinctiveTitle('Fire Force'), false); assert.equal(isDistinctiveTitle('The Irregular at Magic High School'), true);
+  assert.equal(nameMatchesDistinctiveTitle('TVアニメ「炎炎ノ消防隊」オリジナルサウンドトラック', ['Fire Force', '炎炎ノ消防隊']), true);
+  assert.equal(nameMatchesDistinctiveTitle('Fire Force (Original Soundtrack)', ['Fire Force']), false, 'a short English title alone is not enough');
+});
+test('belongsToTitle: the Japanese-named Fire Force album is kept even though its artists are in Japanese script', () => {
+  const al = { platform: 'apple' as const, id: '1', name: 'TVアニメ「炎炎ノ消防隊」オリジナルサウンドトラック', artist: '岩崎琢', url: 'u', kind: 'album' as const };
+  const r = belongsToTitle(al, [], ['Taku Iwasaki'], null, ['Fire Force', '炎炎ノ消防隊']);
+  assert.equal(r.ok, true); assert.equal(r.byTitle, true);
+  const other = { ...al, id: '2', name: 'Fire Force (Original Soundtrack)', artist: 'Someone Else' };
+  assert.equal(belongsToTitle(other, [], ['Taku Iwasaki'], null, ['Fire Force', '炎炎ノ消防隊']).ok, false, 'short English name by an unrelated artist stays rejected');
+});

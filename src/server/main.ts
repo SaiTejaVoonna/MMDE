@@ -5,10 +5,11 @@ import { jikanResolver } from '../providers/jikan.ts';
 import { wikipediaResolver } from '../providers/wikipedia.ts';
 import { animeThemesProvider } from '../providers/animethemes.ts';
 import { curatedProvider } from '../providers/curated.ts';
-import { tmdbResolver, tmdbSeasons, tmdbDetails } from '../providers/tmdb.ts';
+import { tmdbResolver, tmdbSeasons, tmdbDetails, tmdbTrending } from '../providers/tmdb.ts';
 import { wikiSoundtrack } from '../providers/wikiSoundtrack.ts';
 import { trackLinkResolver } from '../providers/trackLinks.ts';
 import { catalogResolver } from '../providers/catalogAlbums.ts';
+import { animeThemesSource } from '../providers/animeThemesSearch.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
 import { loadSeeds, seedMediaResolver } from '../providers/seeds.ts';
 import { anthropicComplete, wikiLlmProvider } from '../providers/wikiLlm.ts';
@@ -37,6 +38,7 @@ const hostMap: Array<[string, string | undefined]> = [
   ['https://en.wikipedia.org', process.env.MMDE_WIKI_TEST_BASE],
   ['https://itunes.apple.com', process.env.MMDE_ITUNES_TEST_BASE],
   ['https://api.deezer.com', process.env.MMDE_DEEZER_TEST_BASE],
+  ['https://api.animethemes.moe', process.env.MMDE_ANIMETHEMES_TEST_BASE],
 ];
 const musicFetch: typeof fetch = hostMap.some(([, b]) => b)
   ? ((u, i) => { let url = String(u); for (const [from, to] of hostMap) if (to) url = url.replace(from, to); return fetch(url, i); })
@@ -64,9 +66,10 @@ createApp({
   tmdbToken, allowedOrigins, trustProxy,
   seasons: (media, token) => tmdbSeasons(media, token, tmdbFetch),
   details: (id, token) => tmdbDetails(id, token, tmdbFetch),
+  trending: (kind, token) => tmdbTrending(token, kind, tmdbFetch),
   soundtrack: offline ? undefined : (title, year, alts) => wikiSoundtrack(userAgent, musicFetch).find(title, year, alts),
   trackLinks: offline ? undefined : ((r) => (q) => r.resolve(q))(trackLinkResolver(userAgent, musicFetch)),
-  ...(offline ? {} : ((c) => ({ albums: c.findAlbums, albumTracks: c.tracks }))(catalogResolver(userAgent, musicFetch))),
+  ...(offline ? {} : ((c, at) => ({ albums: c.findAlbums, albumTracks: c.tracks, animeThemes: at.find }))(catalogResolver(userAgent, musicFetch), animeThemesSource(userAgent, musicFetch))),
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),
 }).listen(port, () => {
   console.log(`MMDE prototype on http://localhost:${port}  (${offline ? 'OFFLINE: local seeds only' : 'live providers enabled'})`);

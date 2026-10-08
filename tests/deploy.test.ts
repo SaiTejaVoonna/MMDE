@@ -282,3 +282,16 @@ test('/api/details validates the id, needs a token, and never leaks it', async (
   const down = await boot({ details: async () => { throw new Error(`boom ${SECRET}`.replace(SECRET, 'x')); } });
   try { assert.equal((await get(`${down.base}/api/details/tmdb-tv-1`)).status, 502); } finally { await down.close(); }
 });
+
+test('/api/trending: kind switch, cached, 503 without TMDB, 502 on failure', async () => {
+  let calls = 0;
+  const s = await boot({ trending: async (kind) => { calls++; if (kind === 'anime' && calls > 5) throw new Error('x'); return [{ id: 'tmdb-tv-1', type: 'tv', title: kind === 'anime' ? 'Anime Hit' : 'Big Show', altTitles: [], externalIds: {} }]; } });
+  try {
+    assert.equal((await (await get(`${s.base}/api/trending`)).json()).results[0].title, 'Big Show');
+    assert.equal((await (await get(`${s.base}/api/trending?kind=anime`)).json()).results[0].title, 'Anime Hit');
+    assert.equal((await (await get(`${s.base}/api/trending?kind=evil`)).json()).results[0].title, 'Big Show', 'unknown kinds fall back to "all"');
+    await get(`${s.base}/api/trending`); assert.equal(calls, 2, 'cached for an hour');
+  } finally { await s.close(); }
+  const none = await boot({ tmdbToken: undefined });
+  try { assert.equal((await get(`${none.base}/api/trending`)).status, 503); } finally { await none.close(); }
+});

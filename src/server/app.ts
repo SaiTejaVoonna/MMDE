@@ -9,11 +9,12 @@ import type { MediaResolver } from '../providers/types.ts';
 import { newSteps, runDiscovery, type Deps, type Step } from './runner.ts';
 import type { Store } from './store.ts';
 import { organize } from '../app/organize.ts';
-import { tmdbSeasons, tmdbDetails, type TmdbSeason, type TmdbDetails } from '../providers/tmdb.ts';
+import { tmdbSeasons, tmdbDetails, tmdbTrending, type TmdbSeason, type TmdbDetails } from '../providers/tmdb.ts';
 import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { TrackLinksResult, TrackQuery } from '../providers/trackLinks.ts';
 import type { CatalogAlbum, CatalogPlatform, CatalogTrack } from '../providers/catalogAlbums.ts';
 import { buildMergedSoundtrack } from '../app/soundtrackService.ts';
+import type { AnimeThemesEntry } from '../providers/animeThemesSearch.ts';
 import type { MergedSoundtrack } from '../app/soundtrackMerge.ts';
 import { decideCors } from './cors.ts';
 import { clientKey, createRateLimiter, type Limit } from './rateLimit.ts';
@@ -33,6 +34,8 @@ export interface AppDeps extends Deps {
   seasons?: (media: Media, token: string) => Promise<TmdbSeason[]>;
   /** Injectable for tests; defaults to the real TMDB details lookup (movie, tv or collection). */
   details?: (id: string, token: string) => Promise<TmdbDetails>;
+  /** Injectable for tests; home-page rows ("all" = trending this week, "anime" = popular anime). */
+  trending?: (kind: 'all' | 'anime', token: string) => Promise<Media[]>;
   /** Wikipedia tracklist lookup. Absent (offline mode) = the endpoint answers 503. */
   soundtrack?: (title: string, year?: number, alts?: string[]) => Promise<Soundtrack | null>;
   /** Per-track Apple Music / Deezer match. Absent = 503. */
@@ -40,6 +43,8 @@ export interface AppDeps extends Deps {
   /** Apple Music / Deezer albums and playlists named after a film (fallback when Wikipedia has no tracklist). */
   albums?: (title: string, year?: number, extraNames?: string[], alts?: string[]) => Promise<CatalogAlbum[]>;
   albumTracks?: (platform: CatalogPlatform, id: string) => Promise<CatalogTrack[]>;
+  /** Anime opening/ending songs per season (AnimeThemes). Optional. */
+  animeThemes?: (title: string, alts: string[], firstYear?: number) => Promise<AnimeThemesEntry[]>;
 }
 
 const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 300 }, discover: { windowMs: 60_000, max: 12 } };
@@ -84,6 +89,8 @@ export function createApp(deps: AppDeps): Server {
   const getSeasons = deps.seasons ?? tmdbSeasons;
   const soundtrackCache = new Map<string, { at: number; value: Soundtrack | null }>();
   const mergedCache = new Map<string, { at: number; value: MergedSoundtrack }>();
+  const trendingCache = new Map<string, { at: number; value: Media[] }>();
+  const getTrending = deps.trending ?? ((kind: 'all' | 'anime', token: string) => tmdbTrending(token, kind));
   const getDetails = deps.details ?? ((id: string, token: string) => tmdbDetails(id, token));
 
   /**
@@ -160,6 +167,14 @@ export function createApp(deps: AppDeps): Server {
         try { return send(res, 200, { seasons: await getSeasons(media, deps.tmdbToken) }); }
         catch (e) { return send(res, 502, { error: `season lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
+      if (req.method === 'GET' && path === '/api/trending') {
+        if (!deps.tmdbToken) return send(res, 503, { error: 'TMDB is not configured on this server' });
+        const kind = url.searchParams.get('kind') === 'anime' ? 'anime' : 'all';
+        const hit = trendingCache.get(kind);
+        if (hit && Date.now() - hit.at < 3600_000) return send(res, 200, { results: hit.value });
+        try { const value = await getTrending(kind, deps.tmdbToken); trendingCache.set(kind, { at: Date.now(), value }); return send(res, 200, { results: value }); }
+        catch (e) { return send(res, 502, { error: `trending lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
       if (req.method === 'GET' && path.startsWith('/api/details/')) {
         if (!deps.tmdbToken) return send(res, 503, { error: 'TMDB is not configured on this server' });
         const id = decodeURIComponent(path.slice('/api/details/'.length));
@@ -218,11 +233,12 @@ export function createApp(deps: AppDeps): Server {
         const composers = list('composer', 4, 80); const alts = list('alt', 8, 120);
         const seasonRaw = url.searchParams.get('season'); const airRaw = url.searchParams.get('seasonYear');
         const season = seasonRaw && /^\d{1,2}$/.test(seasonRaw) && Number(seasonRaw) >= 1 ? { number: Number(seasonRaw), airYear: airRaw && /^\d{4}$/.test(airRaw) ? Number(airRaw) : undefined } : undefined;
-        const key = `${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}|${season ? season.number + '@' + (season.airYear ?? '') : ''}`;
+        const anime = url.searchParams.get('anime') === '1';
+        const key = `${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}|${season ? season.number + '@' + (season.airYear ?? '') : ''}|${anime ? 'anime' : ''}`;
         const hit = mergedCache.get(key);
         if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value);
         try {
-          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks }, title, year, { composers, alts, season });
+          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes }, title, year, { composers, alts, season, anime });
           if (!value.partial) { mergedCache.set(key, { at: Date.now(), value }); if (mergedCache.size > 300) mergedCache.delete(mergedCache.keys().next().value as string); }
           return send(res, 200, value);
         } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }

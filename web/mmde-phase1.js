@@ -105,7 +105,7 @@
 
   // One song row: platform buttons (exact = verified catalog match, dashed = search only) and a favorite heart.
   const CONF_TEXT = { green: 'Confirmed: listed by 2 or more independent sources', amber: 'One source: listed by one reputable source', red: 'Unverified: only found in community playlists' };
-  const SRC_NAME = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', credits: 'artist matches composer', community: 'community playlist' };
+  const SRC_NAME = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', credits: 'artist matches composer', animethemes: 'AnimeThemes', community: 'community playlist' };
   const trackRow = (film, section, t, initial, meta) => {
     const links = {};
     PLATFORMS.forEach(([p]) => { links[p] = { url: searchLink(p, t.title + ' ' + film.title), kind: 'search' }; });
@@ -122,7 +122,8 @@
         el('span', { class: 'tinfo' },
           el('strong', {}, meta ? el('span', { class: 'cdot cdot-' + meta.confidence, title: CONF_TEXT[meta.confidence] + '\n' + meta.evidence.map((e) => e.label).join('\n') }) : null, t.title),
           el('small', {}, [(t.artists || []).join(', '), fmtLen(t.lengthSec)].filter(Boolean).join(' · ')),
-          meta ? el('small', { class: 'tsrc' }, [...new Set(meta.evidence.map((e) => SRC_NAME[e.source] || e.source))].join(' + ')) : null),
+          meta ? el('small', { class: 'tsrc' }, [...new Set(meta.evidence.map((e) => SRC_NAME[e.source] || e.source))].join(' + '),
+            ...meta.evidence.filter((e) => e.source === 'animethemes' && e.url).slice(0, 1).map((e) => el('a', { class: 'vlink', href: safeUrl(e.url), target: '_blank', rel: 'noopener noreferrer', title: 'Watch this opening/ending on AnimeThemes (opens their site)' }, ' ▶ video'))) : null),
         el('span', { class: 'tpills' }, PLATFORMS.map(([p, name]) => {
           const a = el('a', {
             class: 'plink ' + (links[p].kind === 'resolved' ? 'exact' : 'guess'), 'data-p': p, href: safeUrl(links[p].url), target: '_blank', rel: 'noopener noreferrer', 'aria-label': name + (links[p].kind === 'resolved' ? ' (direct link)' : ' (search)'),
@@ -172,7 +173,7 @@
     body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Collecting from Wikipedia, Apple Music and Deezer... (the first time can take up to a minute for big films)')));
     const film = { id: d.id, title: d.title, kind: d.kind, year: d.year, posterPath: d.posterPath };
     const yt = el('a', { href: safeUrl(searchLink('youtube', d.title + ' ' + (d.year || '') + ' soundtrack')), target: '_blank', rel: 'noopener noreferrer' }, 'Search YouTube for the ' + d.title + ' soundtrack');
-    const extra = (d.composers && d.composers.length ? '&composer=' + encodeURIComponent(d.composers.join('|')) : '') + (d.altTitles && d.altTitles.length ? '&alt=' + encodeURIComponent(d.altTitles.join('|')) : '') + (scope ? '&season=' + scope.number + (scope.airYear ? '&seasonYear=' + scope.airYear : '') : '');
+    const extra = (d.composers && d.composers.length ? '&composer=' + encodeURIComponent(d.composers.join('|')) : '') + (d.altTitles && d.altTitles.length ? '&alt=' + encodeURIComponent(d.altTitles.join('|')) : '') + ((d.genres || []).includes('Animation') && d.originalLanguage === 'ja' ? '&anime=1' : '') + (scope ? '&season=' + scope.number + (scope.airYear ? '&seasonYear=' + scope.airYear : '') : '');
     call('/api/soundtrack-merged?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '') + extra).then((m) => {
       if (token !== viewToken) return;
       if (!m.sections || !m.sections.length) { body.replaceChildren(el('p', { class: 'note' }, 'No soundtrack list was found on Wikipedia, Apple Music or Deezer for this title yet. '), yt); return; }
@@ -408,6 +409,19 @@
         : el('p', { class: 'note' }, 'Nothing found. Try fewer words, or add a language or year, like "kalki hindi 2024".')].filter(Boolean));
   };
 
+  // Home-page rows: a title strip of poster cards.
+  const homeRow = (title, items, pick, emptyText) => {
+    const row = el('section', { class: 'homerow' }, el('h3', {}, title));
+    if (!items.length) { if (emptyText) row.append(el('p', { class: 'note' }, emptyText)); return row; }
+    row.append(el('div', { class: 'hscroll' }, items.map((m) => el('button', { type: 'button', class: 'pcard hcard', onclick: () => pick(m) },
+      poster(m.posterPath, 'w342'), el('strong', {}, m.title), el('small', {}, [TYPE_LABEL[m.type] || m.type, m.year].filter(Boolean).join(' · '))))));
+    return row;
+  };
+  const homeRowLoader = (title, kind) => {
+    const slot = el('div', {});
+    call('/api/trending?kind=' + kind).then((r) => { slot.replaceWith(homeRow(title, r.results || [], (m) => { backFn = () => renderSearch(''); showDetails(m); })); }).catch(() => slot.remove());
+    return slot;
+  };
   const renderSearch = (initial) => {
     window.scrollTo(0, 0);
     const sb = searchBox(initial || '', (q) => showResults(q, 'all'), (m, typed) => { backFn = () => renderSearch(typed); showDetails(m); });
@@ -426,7 +440,10 @@
         el('div', { class: 'note try-label' }, 'Try searching'),
         el('div', { class: 'chips' }, ['That Time I Got Reincarnated as a Slime', 'Star Wars', 'Bahubali', 'Jujutsu Kaisen', 'Attack on Titan'].map((t) => el('button', { class: 'chip', type: 'button', onclick: () => showResults(t, 'all') }, t))),
         el('div', { class: 'note mode-note' }, 'TMDB credentials stay on the MMDE server and are never stored in this page.')
-      )
+      ),
+      homeRow('Your list', Object.values(lib.follows).sort((a, b) => b.at - a.at).slice(0, 14).map((f) => ({ id: f.id, type: f.kind, title: f.title, year: f.year, posterPath: f.posterPath })), (m) => { backFn = () => renderSearch(''); showDetails(m); }, 'Nothing followed yet. Open any title and press "+ Follow".'),
+      homeRowLoader('Trending this week', 'all'),
+      homeRowLoader('Popular anime', 'anime')
     );
     sb.input.focus();
     if (initial) sb.input.setSelectionRange(initial.length, initial.length);

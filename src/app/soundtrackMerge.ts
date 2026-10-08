@@ -1,6 +1,7 @@
 import { classifyVersion, normalizeArtist, normalizeTitle } from '../matching/normalize.ts';
 import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { CatalogAlbum, CatalogTrack } from '../providers/catalogAlbums.ts';
+import type { AnimeThemesEntry } from '../providers/animeThemesSearch.ts';
 import { artistMatches, looseFold } from '../providers/catalogAlbums.ts';
 import { classifyForSeason, seasonMarkers, type SeasonFit } from './seasonScope.ts';
 
@@ -11,7 +12,7 @@ import { classifyForSeason, seasonMarkers, type SeasonFit } from './seasonScope.
 //   red   = only a community playlist / unverified  (anyone can make those)
 
 export type Confidence = 'green' | 'amber' | 'red';
-export type EvidenceSource = 'wikipedia' | 'apple' | 'deezer' | 'credits' | 'community';
+export type EvidenceSource = 'wikipedia' | 'apple' | 'deezer' | 'animethemes' | 'credits' | 'community';
 export interface Evidence { source: EvidenceSource; label: string; url?: string }
 export interface MergedTrack {
   key: string;
@@ -25,7 +26,7 @@ export interface MergedTrack {
   links: { apple?: string; deezer?: string };
   art?: string;
 }
-export interface MergedSection { name: string; origin: 'wikipedia' | 'catalog' | 'community'; tracks: MergedTrack[]; releaseDate?: string; /** Only set when a season was requested: does this section belong to it? */ scope?: 'match' | 'unspecified' }
+export interface MergedSection { name: string; origin: 'wikipedia' | 'catalog' | 'community' | 'animethemes'; tracks: MergedTrack[]; releaseDate?: string; /** The date is exact (a season's start), so it only matches the season that aired that year. */ exactYear?: boolean; /** Only set when a season was requested: does this section belong to it? */ scope?: 'match' | 'unspecified' }
 export interface AlbumWithTracks { album: CatalogAlbum; tracks: CatalogTrack[] }
 export interface MergedSoundtrack {
   sections: MergedSection[];
@@ -35,7 +36,7 @@ export interface MergedSoundtrack {
   skipped: Array<{ name: string; platform: string; reason: string }>;
   counts: { green: number; amber: number; red: number; total: number };
   /** How we know the albums belong to this title: the film's composer (TMDB), a Wikipedia tracklist, or 'none' (matched by name only). */
-  verified: 'composer' | 'wikipedia' | 'none';
+  verified: 'composer' | 'wikipedia' | 'title' | 'none';
   /** Set when the list was scoped to one season. */
   season?: { number: number; airYear?: number; excluded: number };
   /** True when some album's tracks could not be fetched in time, so the list may be incomplete. */
@@ -62,7 +63,7 @@ function unionArtists(a: string[], b: string[]): string[] {
   return [...seen.values()];
 }
 
-export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped']; season?: { number: number; airYear?: number; excluded?: number } } = {}): MergedSoundtrack {
+export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped']; titleVerified?: boolean; animeThemes?: AnimeThemesEntry[]; season?: { number: number; airYear?: number; excluded?: number } } = {}): MergedSoundtrack {
   const sections: MergedSection[] = [];
   const byKey = new Map<string, MergedTrack>(); // every song seen so far, wherever it was first listed
   const addEvidence = (t: MergedTrack, e: Evidence) => { if (!t.evidence.some((x) => x.source === e.source && x.label === e.label)) t.evidence.push(e); };
@@ -81,6 +82,22 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
       }
       if (tracks.length) sections.push({ name: sec.name, origin: 'wikipedia', tracks });
     }
+  }
+
+  // 1b. AnimeThemes: the anime's real opening/ending songs, one section per season/cour (year and season are on the entry).
+  for (const entry of opts.animeThemes ?? []) {
+    const tracks: MergedTrack[] = [];
+    let n = 0;
+    for (const th of entry.themes) {
+      n++;
+      const key = trackKey(th.title);
+      const ev: Evidence = { source: 'animethemes', label: `AnimeThemes: ${entry.name} ${th.slug}`, url: th.url };
+      const known = byKey.get(key);
+      if (known) { addEvidence(known, ev); continue; }
+      const m: MergedTrack = { key, no: th.sequence ?? n, title: th.title, artists: th.artists, confidence: 'amber', evidence: [ev], links: {} };
+      byKey.set(key, m); tracks.push(m);
+    }
+    if (tracks.length) sections.push({ name: `Openings and endings · ${entry.name}${entry.year ? ` (${entry.year}${entry.season ? ' ' + entry.season : ''})` : ''}`, origin: 'animethemes', tracks, releaseDate: entry.year ? `${entry.year}-${({ Winter: '01', Spring: '04', Summer: '07', Fall: '10' } as Record<string, string>)[entry.season ?? ''] ?? '06'}-01` : undefined, exactYear: true });
   }
 
   // 2. Catalog albums: add evidence and direct links to known songs; unknown songs go in their own album section.
@@ -132,13 +149,13 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
   if (opts.season) {
     kept = [];
     for (const sec of sections) {
-      const fit: SeasonFit = classifyForSeason(sec.name, sec.releaseDate, opts.season.number, opts.season.airYear);
+      const fit: SeasonFit = classifyForSeason(sec.name, sec.releaseDate, opts.season.number, opts.season.airYear, sec.exactYear ? 0 : 1);
       if (fit === 'excluded') { excluded++; continue; }
       sec.scope = fit; kept.push(sec);
     }
   }
   // With no composer and no Wikipedia list, an album is matched by its NAME only ("Kingdom" fits many works): never call that trustworthy.
-  const verified: MergedSoundtrack['verified'] = (opts.composers ?? []).length ? 'composer' : wiki ? 'wikipedia' : 'none';
+  const verified: MergedSoundtrack['verified'] = (opts.composers ?? []).length ? 'composer' : wiki ? 'wikipedia' : opts.titleVerified || (opts.animeThemes ?? []).length ? 'title' : 'none';
   const counts = { green: 0, amber: 0, red: 0, total: 0 };
   for (const t of byKey.values()) {
     t.confidence = confidenceOf(t.evidence);

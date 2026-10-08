@@ -175,3 +175,12 @@ button.pcard:hover{border-color:#35425d;background:rgba(255,255,255,.03)}
 .tlgo{color:var(--accent);margin-top:2px}
 button.tlitem:hover .tlgo{text-decoration:underline}
 .tother{margin-top:10px}
+
+/* home rows */
+.homerow{max-width:1120px;margin:34px auto 0;text-align:left}
+.homerow h3{margin:0 0 10px;font-size:18px;letter-spacing:-.02em}
+.hscroll{display:flex;gap:14px;overflow-x:auto;padding:4px 2px 14px}
+.hcard{flex:0 0 150px}
+
+.vlink{color:var(--accent);font-size:11px;text-decoration:none;margin-left:6px}
+.vlink:hover{text-decoration:underline}
