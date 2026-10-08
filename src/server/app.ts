@@ -9,11 +9,13 @@ import type { MediaResolver } from '../providers/types.ts';
 import { newSteps, runDiscovery, type Deps, type Step } from './runner.ts';
 import type { Store } from './store.ts';
 import { organize } from '../app/organize.ts';
+import { tmdbSeasons } from '../providers/tmdb.ts';
 
 export interface AppDeps extends Deps {
   mediaResolvers: MediaResolver[];
   store: Store;
   webRoot: string;
+  tmdbToken?: string;
 }
 
 interface Job { id: string; mediaId: string; state: 'running' | 'done' | 'error'; steps: Step[]; error?: string }
@@ -84,6 +86,12 @@ export function createApp(deps: AppDeps): Server {
       const path = url.pathname;
       if (req.method === 'GET' && path === '/api/health') return send(res, 200, { ok: true, resolvers: deps.mediaResolvers.map((r) => r.name), providers: deps.providers.map((p) => p.name) });
       if (req.method === 'GET' && path === '/api/search') return send(res, 200, await search(url.searchParams.get('q') ?? ''));
+      if (req.method === 'GET' && path.startsWith('/api/seasons/')) {
+        if (!deps.tmdbToken) return send(res, 503, { error: 'TMDB is not configured on this server' });
+        const id = decodeURIComponent(path.slice('/api/seasons/'.length));
+        const media = { id, type: 'tv', title: '', altTitles: [], externalIds: { tmdb: id.replace(/^tmdb-tv-/, ''), tmdbType: 'tv' } } as Media;
+        return send(res, 200, { seasons: await tmdbSeasons(media, deps.tmdbToken) });
+      }
       if (req.method === 'GET' && path === '/api/media') return send(res, 200, { items: await deps.store.list() });
       if (req.method === 'GET' && path.startsWith('/api/media/')) {
         const r = await deps.store.get(decodeURIComponent(path.slice('/api/media/'.length)));
