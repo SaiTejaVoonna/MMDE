@@ -24,7 +24,7 @@ interface TmdbResult {
 
 // Some home networks reset a connection now and then (ECONNRESET). Retry only
 // network failures and 502/503/504, a few times, so one blip is not a failed search.
-export async function fetchRetry(fetchImpl: typeof fetch, url: string, init: RequestInit, tries = 3, delayMs = 400): Promise<Response> {
+export async function fetchRetry(fetchImpl: typeof fetch, url: string, init: RequestInit, tries = 4, delayMs = 400): Promise<Response> {
   let last: unknown;
   for (let i = 0; i < tries; i++) {
     try {

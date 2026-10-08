@@ -88,7 +88,7 @@
         loading.hidden = true;
         const warn = 'TMDB could not be reached just now (network). Showing limited results - press Enter to search again.';
         if (!items.length) { status.textContent = tmdbDown ? warn : 'No matches found.'; return; }
-        if (tmdbDown) status.textContent = warn;
+        if (tmdbDown) { status.textContent = warn; results.append(el('div', { class: 'note', style: 'padding:8px 14px' }, warn)); }
         results.append(...items.map(m => el('button', { type: 'button', onclick: () => showSeasons(m) },
           m.title, el('small', {}, m.type + (m.year ? ' · ' + m.year : ''))
         )));
