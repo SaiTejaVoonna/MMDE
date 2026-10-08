@@ -48,13 +48,13 @@ function landing() {
   $app.replaceChildren(
     el('section', { class: 'hero' },
       el('h1', {}, 'Know the Title.', el('br'), el('em', {}, 'Discover the Music.')),
-      el('p', {}, 'Search a title. MMDE finds its openings, endings, inserts and soundtracks, then links you to where the music lives.'),
+      el('p', {}, 'Search any media title. MMDE first resolves what you mean — anime, movie, TV show, game or other media. Music comes in Phase 2.'),
       el('div', { class: 'searchwrap' }, input, suggest),
       status,
       el('div', { class: 'note' }, 'Try:'),
       el('div', { class: 'chips' }, examples.map((t) => el('button', { class: 'chip', type: 'button', onclick: () => { input.value = t; input.focus(); run(); } }, t))),
 
-      el('div', { class: 'note' }, `Mode: ${api.modeLabel}`),
+      el('div', { class: 'note' }, `Phase 1 · Media search · ${api.modeLabel}`),
       settingsPanel(),
     ),
   );
@@ -175,7 +175,7 @@ function settingsPanel() {
   const msg = el('span', { class: 'note' });
   const save = el('button', { class: 'btn', type: 'button', onclick: () => { st.set({ live: live.checked, anthropicKey: key.value.trim() }); msg.textContent = 'Saved.'; } }, 'Save');
   return el('details', { class: 'card' }, el('summary', {}, 'Settings'),
-    el('label', {}, live, ' Use live providers (AniList, MusicBrainz, Wikipedia) directly from this browser'),
+    el('label', {}, live, ' Use live media-search providers (AniList, Jikan, Wikipedia) directly from this browser'),
     el('div', { class: 'note' }, 'Your browser cannot set a custom User-Agent; keep usage light. Deezer cannot be called from a browser (no CORS), so platform links stay as search links.'),
     el('div', { class: 'note' }, 'An API key enables the Wikipedia+AI extractor. It is sent only to api.anthropic.com from this browser, but anyone with access to this browser profile can read it.'),
     key, el('div', {}, save, ' ', msg));
