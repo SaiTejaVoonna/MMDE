@@ -179,6 +179,21 @@ export function segmentQuery(query: string): string | undefined {
   return out && out.words.length >= 2 ? out.words.join(' ') : undefined;
 }
 
+const plainFold = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const STOP_WORDS = new Set(['the', 'and', 'for', 'with', 'from', 'movie', 'film', 'series', 'show', 'anime']);
+/** Search each distinctive word separately, then keep (and rank) titles that contain most of the query's words. */
+export async function fuzzyByWords(query: string, fetchKind: (kind: 'tv' | 'movie', text: string, page: number) => Promise<Media[]>): Promise<Media[]> {
+  const words = [...new Set(plainFold(query).split(' ').filter((w) => w.length >= 4 && !STOP_WORDS.has(w)))].sort((a, b) => b.length - a.length);
+  if (words.length < 2) return [];
+  const pool = (await Promise.allSettled(words.slice(0, 3).flatMap((w) => [fetchKind('tv', w, 1), fetchKind('movie', w, 1)]))).flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+  const seen = new Set<string>();
+  const scored = pool.filter((m) => !seen.has(m.id) && !!seen.add(m.id)).map((m) => {
+    const hay = plainFold([m.title, ...m.altTitles].join(' '));
+    return { m, cover: words.filter((w) => hay.includes(w)).length / words.length };
+  }).filter((x) => x.cover >= 0.66);
+  return scored.sort((a, b) => b.cover - a.cover || (b.m.popularity ?? 0) - (a.m.popularity ?? 0)).map((x) => x.m).slice(0, 10);
+}
+
 export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): MediaResolver {
   const fetchKind = async (kind: 'tv' | 'movie', text: string, page: number, year?: number): Promise<Media[]> => {
     const yearParam = year ? `&${kind === 'tv' ? 'first_air_date_year' : 'year'}=${year}` : '';
@@ -221,7 +236,13 @@ export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): Me
       const raw = settled.slice(hintedJobs.length).flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
       const seen = new Set<string>();
       const all = [...hinted, ...raw].filter((m) => !seen.has(m.id) && !!seen.add(m.id));
-      return rankByQuery(all, query, { alt: p.hinted ? p.text : seg, lang: p.lang, anime: p.anime }).slice(0, opts.deep ? 40 : 15);
+      const ranked = rankByQuery(all, query, { alt: p.hinted ? p.text : seg, lang: p.lang, anime: p.anime }).slice(0, opts.deep ? 40 : 15);
+      if (ranked.length >= 3) return ranked;
+      // Few or no hits: TMDB wants the words close to the title. Try the words one by one and keep titles that contain most of them
+      // ("irregular high" -> "The Irregular at Magic High School").
+      const have = new Set(ranked.map((m) => m.id));
+      const loose = await fuzzyByWords(raw0, fetchKind).catch(() => [] as Media[]);
+      return [...ranked, ...loose.filter((m) => !have.has(m.id))].slice(0, opts.deep ? 40 : 15);
     },
   };
 }

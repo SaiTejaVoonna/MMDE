@@ -5,7 +5,7 @@ import { createRateLimiter } from './types.ts';
 // YouTube and Spotify need API keys to list albums/playlists, so they are not covered here.
 
 export type CatalogPlatform = 'apple' | 'deezer' | 'deezer-playlist';
-export interface CatalogAlbum { platform: CatalogPlatform; id: string; name: string; artist: string; art?: string; url: string; trackCount?: number; kind: 'album' | 'playlist'; /** Found because Wikipedia's tracklist names this album (not because its name contains the film title). */ viaWiki?: boolean }
+export interface CatalogAlbum { platform: CatalogPlatform; id: string; name: string; artist: string; art?: string; url: string; trackCount?: number; kind: 'album' | 'playlist'; /** ISO date when the catalog states one (Apple does). */ releaseDate?: string; /** Found because Wikipedia's tracklist names this album (not because its name contains the film title). */ viaWiki?: boolean }
 export interface CatalogTrack { no: number; title: string; artists: string[]; lengthSec?: number; url: string; id: string; art?: string }
 
 /** Lowercase, accents removed, punctuation -> space, repeated letters collapsed ("Bāhubali" ~ "Baahubali"). */
@@ -18,6 +18,22 @@ const SOUNDTRACKY = /soundtrack|\bost\b|motion picture|original score|film score
 export function isFilmAlbum(filmTitle: string, albumName: string, alts: string[] = []): boolean {
   const name = looseFold(albumName);
   return [filmTitle, ...alts].some((t) => { const film = looseFold(t); return film.length >= 3 && name.includes(film); });
+}
+
+const NON_LATIN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Devanagari}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Malayalam}\p{Script=Kannada}\p{Script=Thai}\p{Script=Arabic}\p{Script=Cyrillic}]/u;
+/**
+ * Is a title distinctive enough that an album NAMED after it is almost certainly about the same work?
+ * Non-Latin titles ("炎炎ノ消防隊"), long titles and 3+ word titles are; "Kingdom" or "Fire Force" are not (many works share them).
+ */
+export function isDistinctiveTitle(title: string): boolean {
+  if (NON_LATIN.test(title)) return true;
+  const words = looseFold(title).split(' ').filter((w) => w && !['the', 'a', 'an', 'of', 'and', 'in', 'on', 'to'].includes(w));
+  return words.length >= 3 || looseFold(title).length >= 16;
+}
+/** Does this album's name contain one of the (distinctive) titles of the work? */
+export function nameMatchesDistinctiveTitle(albumName: string, titles: string[]): boolean {
+  const name = looseFold(albumName);
+  return titles.some((t) => isDistinctiveTitle(t) && looseFold(t).length >= 3 && name.includes(looseFold(t)));
 }
 
 /** Do two artist credits name the same person? Tolerates initials, punctuation, doubled letters ("M.M. Keeravaani" ~ "M. M. Keeravani"). */
@@ -118,7 +134,7 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
       if (a.status === 'fulfilled' || altApple.length) {
         for (const r of [...(a.status === 'fulfilled' ? a.value.results ?? [] : []), ...altApple]) {
           if (!r.collectionId || !isFilmAlbum(film, String(r.collectionName ?? ''), alts) || (r.trackCount ?? 0) < 2) continue;
-          out.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album' });
+          out.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', releaseDate: r.releaseDate ? String(r.releaseDate) : undefined });
         }
       }
       const seen = new Set(out.map((x) => looseFold(x.name)));
@@ -126,14 +142,14 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
         for (const r of [...(d.status === 'fulfilled' ? d.value.data ?? [] : []), ...altDeezer]) {
           if (!r.id || !isFilmAlbum(film, String(r.title ?? ''), alts) || (r.nb_tracks ?? 0) < 2 || seen.has(looseFold(String(r.title)))) continue;
           seen.add(looseFold(String(r.title)));
-          out.push({ platform: 'deezer', id: String(r.id), name: String(r.title), artist: String(r.artist?.name ?? ''), art: r.cover_medium ? String(r.cover_medium) : undefined, url: String(r.link ?? ''), trackCount: r.nb_tracks, kind: 'album' });
+          out.push({ platform: 'deezer', id: String(r.id), name: String(r.title), artist: String(r.artist?.name ?? ''), art: r.cover_medium ? String(r.cover_medium) : undefined, url: String(r.link ?? ''), trackCount: r.nb_tracks, kind: 'album', releaseDate: r.release_date ? String(r.release_date) : undefined });
         }
       }
       const viaWiki: CatalogAlbum[] = [];
       for (const r of extraApple) {
         if (!r.collectionId || (r.trackCount ?? 0) < 2 || seen.has(looseFold(String(r.collectionName)))) continue;
         seen.add(looseFold(String(r.collectionName)));
-        viaWiki.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', viaWiki: true });
+        viaWiki.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', viaWiki: true, releaseDate: r.releaseDate ? String(r.releaseDate) : undefined });
       }
       for (const r of extraDeezer) {
         if (!r.id || (r.nb_tracks ?? 0) < 2 || seen.has(looseFold(String(r.title)))) continue;

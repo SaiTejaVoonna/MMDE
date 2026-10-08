@@ -2,6 +2,7 @@ import { classifyVersion, normalizeArtist, normalizeTitle } from '../matching/no
 import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { CatalogAlbum, CatalogTrack } from '../providers/catalogAlbums.ts';
 import { artistMatches, looseFold } from '../providers/catalogAlbums.ts';
+import { classifyForSeason, seasonMarkers, type SeasonFit } from './seasonScope.ts';
 
 // Phase A: merge every soundtrack source we have into ONE organized list, and say how much each song can be trusted.
 //   green = confirmed by 2+ independent sources     (e.g. on the Wikipedia tracklist AND on an Apple Music album named after the film;
@@ -24,7 +25,7 @@ export interface MergedTrack {
   links: { apple?: string; deezer?: string };
   art?: string;
 }
-export interface MergedSection { name: string; origin: 'wikipedia' | 'catalog' | 'community'; tracks: MergedTrack[] }
+export interface MergedSection { name: string; origin: 'wikipedia' | 'catalog' | 'community'; tracks: MergedTrack[]; releaseDate?: string; /** Only set when a season was requested: does this section belong to it? */ scope?: 'match' | 'unspecified' }
 export interface AlbumWithTracks { album: CatalogAlbum; tracks: CatalogTrack[] }
 export interface MergedSoundtrack {
   sections: MergedSection[];
@@ -33,6 +34,10 @@ export interface MergedSoundtrack {
   /** Albums/playlists that were found but dropped because neither artist nor songs matched this title. */
   skipped: Array<{ name: string; platform: string; reason: string }>;
   counts: { green: number; amber: number; red: number; total: number };
+  /** How we know the albums belong to this title: the film's composer (TMDB), a Wikipedia tracklist, or 'none' (matched by name only). */
+  verified: 'composer' | 'wikipedia' | 'title' | 'none';
+  /** Set when the list was scoped to one season. */
+  season?: { number: number; airYear?: number; excluded: number };
   /** True when some album's tracks could not be fetched in time, so the list may be incomplete. */
   partial: boolean;
 }
@@ -57,7 +62,7 @@ function unionArtists(a: string[], b: string[]): string[] {
   return [...seen.values()];
 }
 
-export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped'] } = {}): MergedSoundtrack {
+export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTracks[], opts: { partial?: boolean; composers?: string[]; skipped?: MergedSoundtrack['skipped']; titleVerified?: boolean; season?: { number: number; airYear?: number; excluded?: number } } = {}): MergedSoundtrack {
   const sections: MergedSection[] = [];
   const byKey = new Map<string, MergedTrack>(); // every song seen so far, wherever it was first listed
   const addEvidence = (t: MergedTrack, e: Evidence) => { if (!t.evidence.some((x) => x.source === e.source && x.label === e.label)) t.evidence.push(e); };
@@ -99,7 +104,7 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
         byKey.set(key, m); fresh.push(m);
       }
     }
-    if (fresh.length) sections.push({ name: `${PLATFORM_LABEL[album.platform]}: ${album.name}`, origin: 'catalog', tracks: fresh });
+    if (fresh.length) sections.push({ name: `${PLATFORM_LABEL[album.platform]}: ${album.name}`, origin: 'catalog', tracks: fresh, releaseDate: album.releaseDate });
   }
 
   // 3. Community playlists never create "confirmed" songs: they only add a (weak) note to known ones, or sit in a red section.
@@ -113,7 +118,7 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
       const m: MergedTrack = { key, no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec, confidence: 'red', evidence: [ev], links: { deezer: t.url }, art: t.art ?? album.art };
       byKey.set(key, m); fresh.push(m);
     }
-    if (fresh.length) sections.push({ name: `Community playlist (unverified): ${album.name}`, origin: 'community', tracks: fresh });
+    if (fresh.length) sections.push({ name: `Community playlist (unverified): ${album.name}`, origin: 'community', tracks: fresh, releaseDate: album.releaseDate });
   }
 
   // 4. Artist check: a song credited to the film's composer (per TMDB) gets one extra, independent piece of evidence.
@@ -122,10 +127,26 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
     if (hit) addEvidence(t, { source: 'credits', label: `Credited artist matches the film's composer, ${hit} (TMDB credits)` });
   }
 
+  // Season scoping: keep sections that belong to the requested season (or say nothing), drop those naming other seasons.
+  let kept = sections; let excluded = 0;
+  if (opts.season) {
+    kept = [];
+    for (const sec of sections) {
+      const fit: SeasonFit = classifyForSeason(sec.name, sec.releaseDate, opts.season.number, opts.season.airYear);
+      if (fit === 'excluded') { excluded++; continue; }
+      sec.scope = fit; kept.push(sec);
+    }
+  }
+  // With no composer and no Wikipedia list, an album is matched by its NAME only ("Kingdom" fits many works): never call that trustworthy.
+  const verified: MergedSoundtrack['verified'] = (opts.composers ?? []).length ? 'composer' : wiki ? 'wikipedia' : opts.titleVerified ? 'title' : 'none';
   const counts = { green: 0, amber: 0, red: 0, total: 0 };
-  for (const t of byKey.values()) { t.confidence = confidenceOf(t.evidence); counts[t.confidence]++; counts.total++; }
+  for (const t of byKey.values()) {
+    t.confidence = confidenceOf(t.evidence);
+    if (verified === 'none' && t.confidence === 'amber') t.confidence = 'red';
+  }
+  for (const sec of kept) for (const t of sec.tracks) { counts[t.confidence]++; counts.total++; }
   return {
-    sections, wikipedia: wiki ? { title: wiki.page.title, url: wiki.page.url } : undefined,
-    albums: fetched.map((f) => f.album), skipped: opts.skipped ?? [], counts, partial: !!opts.partial,
+    sections: kept, season: opts.season ? { number: opts.season.number, airYear: opts.season.airYear, excluded: (opts.season.excluded ?? 0) + excluded } : undefined, wikipedia: wiki ? { title: wiki.page.title, url: wiki.page.url } : undefined,
+    albums: fetched.map((f) => f.album), skipped: opts.skipped ?? [], verified, counts, partial: !!opts.partial,
   };
 }
