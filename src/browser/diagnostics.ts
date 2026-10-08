@@ -49,6 +49,7 @@ export function buildDiagnostics(r: DiscoveryResult, c: DiagContext): string {
     const part = t.part.number != null ? `${t.part.kind} ${t.part.number}` : t.part.kind;
     lines.push(`- [${t.status}] ${part} / ${t.role}${t.position ? ' ' + t.position : ''}: "${t.title}" - ${t.artists.join(', ') || 'unknown'} | version=${t.version} confidence=${t.confidence} matchScore=${t.matchScore ?? 'none'}` +
       (t.recording ? ` | mbid=${t.recording.mbid ?? '-'} isrc=${t.recording.isrcs.join(',') || '-'}` : ' | no recording match'));
+    if (t.matchNote) lines.push(`    match: ${t.matchNote}`);
     for (const e of t.evidence) lines.push(`    evidence: ${e.provider} ${e.url ?? '(no url)'}${e.quote ? ` "${clip(e.quote)}"` : ''}`);
     const resolved = t.links.filter((l) => l.kind === 'resolved').map((l) => l.platform);
     lines.push(`    links: ${resolved.length ? 'resolved=' + resolved.join(',') : 'all search links (none resolved)'}`);

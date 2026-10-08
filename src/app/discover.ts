@@ -1,6 +1,6 @@
 import type { Media, MediaTrack, TrackClaim, Evidence, RecordingCandidate } from '../domain/types.ts';
 import type { DiscoveryProvider, RecordingResolver } from '../providers/types.ts';
-import { bestMatch } from '../matching/match.ts';
+import { bestMatch, scoreMatch } from '../matching/match.ts';
 import { classifyVersion, normalizeArtist, normalizeTitle } from '../matching/normalize.ts';
 
 const CONFIRM_SCORE = 0.8;
@@ -68,9 +68,12 @@ export async function buildTracks(
 
     let recording: RecordingCandidate | undefined;
     let matchScore: number | undefined;
+    let matchNote: string | undefined;
     if (resolver) {
       try {
-        const m = bestMatch(merged, await resolver.resolve(first.title, artists));
+        const candidates = await resolver.resolve(first.title, artists);
+        const m = bestMatch(merged, candidates);
+        matchNote = describeMatch(merged, candidates);
         if (m) {
           recording = m.candidate;
           matchScore = m.result.score;
@@ -94,10 +97,23 @@ export async function buildTracks(
       version: classifyVersion(first.title),
       recording: matched ? recording : undefined,
       matchScore,
+      matchNote,
       confidence: Math.round(confidence * 100) / 100,
       status,
       evidence,
     });
   }
   return { tracks, errors };
+}
+
+/** Display-only explanation of the best candidate, even when it was rejected. */
+function describeMatch(claim: TrackClaim, candidates: RecordingCandidate[]): string {
+  if (candidates.length === 0) return 'resolver returned 0 candidates';
+  let top = candidates[0]!;
+  let topResult = scoreMatch(claim, top);
+  for (const c of candidates.slice(1)) {
+    const r = scoreMatch(claim, c);
+    if (r.score > topResult.score) { top = c; topResult = r; }
+  }
+  return `${candidates.length} candidates; top "${top.title}" - ${top.artists.join(', ') || 'unknown'} score ${topResult.score.toFixed(2)} (${topResult.reasons.join(', ')})`;
 }

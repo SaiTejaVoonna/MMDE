@@ -443,9 +443,12 @@ ${text}`;
       const merged = { ...first, artists };
       let recording;
       let matchScore;
+      let matchNote;
       if (resolver) {
         try {
-          const m = bestMatch(merged, await resolver.resolve(first.title, artists));
+          const candidates = await resolver.resolve(first.title, artists);
+          const m = bestMatch(merged, candidates);
+          matchNote = describeMatch(merged, candidates);
           if (m) {
             recording = m.candidate;
             matchScore = m.result.score;
@@ -467,12 +470,26 @@ ${text}`;
         version: classifyVersion(first.title),
         recording: matched ? recording : void 0,
         matchScore,
+        matchNote,
         confidence: Math.round(confidence * 100) / 100,
         status,
         evidence
       });
     }
     return { tracks, errors };
+  }
+  function describeMatch(claim, candidates) {
+    if (candidates.length === 0) return "resolver returned 0 candidates";
+    let top = candidates[0];
+    let topResult = scoreMatch(claim, top);
+    for (const c of candidates.slice(1)) {
+      const r = scoreMatch(claim, c);
+      if (r.score > topResult.score) {
+        top = c;
+        topResult = r;
+      }
+    }
+    return `${candidates.length} candidates; top "${top.title}" - ${top.artists.join(", ") || "unknown"} score ${topResult.score.toFixed(2)} (${topResult.reasons.join(", ")})`;
   }
 
   // src/links/platforms.ts
@@ -721,6 +738,7 @@ ${text}`;
     for (const t of r.tracks) {
       const part = t.part.number != null ? `${t.part.kind} ${t.part.number}` : t.part.kind;
       lines.push(`- [${t.status}] ${part} / ${t.role}${t.position ? " " + t.position : ""}: "${t.title}" - ${t.artists.join(", ") || "unknown"} | version=${t.version} confidence=${t.confidence} matchScore=${t.matchScore ?? "none"}` + (t.recording ? ` | mbid=${t.recording.mbid ?? "-"} isrc=${t.recording.isrcs.join(",") || "-"}` : " | no recording match"));
+      if (t.matchNote) lines.push(`    match: ${t.matchNote}`);
       for (const e of t.evidence) lines.push(`    evidence: ${e.provider} ${e.url ?? "(no url)"}${e.quote ? ` "${clip(e.quote)}"` : ""}`);
       const resolved = t.links.filter((l) => l.kind === "resolved").map((l) => l.platform);
       lines.push(`    links: ${resolved.length ? "resolved=" + resolved.join(",") : "all search links (none resolved)"}`);

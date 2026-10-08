@@ -78,3 +78,14 @@ test('slime sample seed loads, renders, and is only ever "unverified" offline', 
   assert.match(out, /Boku no Naka no Kimi e/);
   assert.match(seed._status ?? '', /UNVERIFIED/);
 });
+
+test('matchNote explains a rejected match (artist script mismatch) and an empty result', async () => {
+  const jpArtist: RecordingResolver = { name: 'mb', async resolve(title) { return [{ title, artists: ['寺島拓篤'], isrcs: [], source: 'mb' }]; } };
+  const empty: RecordingResolver = { name: 'mb', async resolve() { return []; } };
+  const claims = [fakeProvider('a', [{ title: 'Nameless Story', artists: ['Takuma Terashima'] }])];
+  const a = (await discover(media, claims, jpArtist)).tracks[0]!;
+  assert.equal(a.status, 'unverified');
+  assert.match(a.matchNote!, /1 candidates; top "Nameless Story" - 寺島拓篤 score 0\.\d+ \(.*artist 0\.00/);
+  const b = (await discover(media, claims, empty)).tracks[0]!;
+  assert.equal(b.matchNote, 'resolver returned 0 candidates');
+});

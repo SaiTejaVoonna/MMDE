@@ -84,6 +84,8 @@ export interface MediaTrack {
   version: VersionKind;
   recording?: RecordingCandidate;
   matchScore?: number;
+  /** Display-only: why a recording was / was not matched (top candidate and score). */
+  matchNote?: string;
   confidence: number;
   status: MatchStatus;
   evidence: Evidence[];

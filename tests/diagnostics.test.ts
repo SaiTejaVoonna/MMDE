@@ -7,7 +7,7 @@ const ev = { provider: 'wikipedia+llm', url: 'https://en.wikipedia.org/wiki/X', 
 const result: DiscoveryResult = {
   media: { id: 'm1', type: 'anime', title: 'Show', altTitles: [], year: 2020, externalIds: { anilist: '1' } },
   tracks: [
-    { id: 't1', part: { kind: 'season', number: 1 }, role: 'opening', position: 'OP1', title: 'Song A', artists: ['Eve'], version: 'original', confidence: 0.62, matchScore: 0.95, status: 'suggested', evidence: [ev], recording: { title: 'Song A', artists: ['Eve'], isrcs: ['JP123'], mbid: 'mb-1', source: 'musicbrainz' }, links: [{ platform: 'deezer', url: 'https://deezer/1', kind: 'resolved' }, { platform: 'spotify', url: 'https://s', kind: 'search' }] },
+    { id: 't1', part: { kind: 'season', number: 1 }, role: 'opening', position: 'OP1', title: 'Song A', artists: ['Eve'], version: 'original', confidence: 0.62, matchScore: 0.95, matchNote: '3 candidates; top "Song A" - Eve score 0.95 (title 1.00, artist 1.00)', status: 'suggested', evidence: [ev], recording: { title: 'Song A', artists: ['Eve'], isrcs: ['JP123'], mbid: 'mb-1', source: 'musicbrainz' }, links: [{ platform: 'deezer', url: 'https://deezer/1', kind: 'resolved' }, { platform: 'spotify', url: 'https://s', kind: 'search' }] },
     { id: 't2', part: { kind: 'season', number: 1 }, role: 'ending', title: 'Song B', artists: [], version: 'original', confidence: 0.3, status: 'unverified', evidence: [], links: [] },
   ],
   releases: [{ title: 'OST', artists: ['Comp'], kind: 'ost', trackCount: 46, evidence: { provider: 'curated-seed', fetchedAt: 'x' } }],
@@ -34,6 +34,10 @@ test('lists every track with status, ids, evidence and link resolution', () => {
   assert.match(out, /links: resolved=deezer/);
   assert.match(out, /links: all search links/);
   assert.match(out, /RELEASES: 1[\s\S]*ost "OST".*46 tracks/);
+});
+
+test('shows why a recording did or did not match', () => {
+  assert.match(out, /match: 3 candidates; top "Song A" - Eve score 0\.95/);
 });
 
 test('clips long quotes and never contains an API key', () => {
