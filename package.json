@@ -4,9 +4,13 @@
   "private": true,
   "description": "Media Music Discovery Engine - personal prototype (not for distribution)",
   "type": "module",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "test": "node --test \"tests/*.test.ts\"",
-    "slime": "node src/app/cli.ts data/seeds/slime.sample.json"
+    "slime": "node src/app/cli.ts data/seeds/slime.sample.json",
+    "start": "node src/server/main.ts",
+    "start:offline": "MMDE_OFFLINE=1 node src/server/main.ts"
   }
 }

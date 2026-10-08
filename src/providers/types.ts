@@ -1,9 +1,17 @@
-import type { Media, RecordingCandidate, TrackClaim } from '../domain/types.ts';
+import type { Media, PlatformLink, RecordingCandidate, Release, TrackClaim, MediaTrack } from '../domain/types.ts';
 
 /** Finds media -> music relationships (themes, inserts, OST...). Replaceable. */
 export interface DiscoveryProvider {
   readonly name: string;
   discover(media: Media): Promise<TrackClaim[]>;
+  /** Optional: soundtrack/album releases related to the media. */
+  releases?(media: Media): Promise<Release[]>;
+}
+
+/** Finds real platform items (e.g. via ISRC or catalog search). Optional, best-effort. */
+export interface LinkResolver {
+  readonly name: string;
+  resolve(track: MediaTrack): Promise<PlatformLink[]>;
 }
 
 /** Resolves a (title, artists) pair to concrete recordings with stable IDs. */

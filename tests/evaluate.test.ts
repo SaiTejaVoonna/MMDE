@@ -7,16 +7,15 @@ import { curatedProvider, loadSeed } from '../src/providers/curated.ts';
 
 const here = (p: string) => new URL(p, import.meta.url).pathname;
 
-test('every seed claim appears in the ground truth (seed has no false positives)', async () => {
+test('seed and ground truth agree (no false positives, nothing missed)', async () => {
   const seed = await loadSeed(here('../data/seeds/slime.sample.json'));
   const truth = JSON.parse(await readFile(here('../data/ground-truth/slime.s1.json'), 'utf8')).tracks as GroundTruthTrack[];
   const { tracks } = await discover(seed.media, [curatedProvider(seed)]);
   const ev = evaluate(tracks, truth, { includeUnverified: true });
   assert.equal(ev.falsePositives.length, 0);
   assert.equal(ev.precision, 1);
-  // The seed misses the one insert song; the evaluator must report it as missed.
-  assert.deepEqual(ev.missed.map((m) => m.title), ['Boku no Naka no Kimi e']);
-  assert.equal(ev.recall, 0.8);
+  assert.deepEqual(ev.missed, []);
+  assert.equal(ev.recall, 1);
 });
 
 test('unverified tracks do not count as shown by default', async () => {

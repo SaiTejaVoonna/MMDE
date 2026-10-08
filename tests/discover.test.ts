@@ -69,10 +69,11 @@ test('organize groups by part then role in a stable order', async () => {
 test('slime sample seed loads, renders, and is only ever "unverified" offline', async () => {
   const seed = await loadSeed(new URL('../data/seeds/slime.sample.json', import.meta.url).pathname);
   const { tracks } = await discover(seed.media, [curatedProvider(seed)]);
-  assert.equal(tracks.length, 4);
+  assert.equal(tracks.length, 5);
   assert.ok(tracks.every((t) => t.status === 'unverified'));
   const out = render(seed.media, tracks);
   assert.match(out, /Season 1/);
   assert.match(out, /OP1: Nameless Story/);
+  assert.match(out, /Boku no Naka no Kimi e/);
   assert.match(seed._status ?? '', /UNVERIFIED/);
 });

@@ -88,3 +88,37 @@ export interface MediaTrack {
   status: MatchStatus;
   evidence: Evidence[];
 }
+
+export interface Release {
+  title: string;
+  artists: string[];
+  kind: 'ost' | 'single' | 'album' | 'other';
+  label?: string;
+  date?: string;
+  trackCount?: number;
+  part?: PartRef;
+  evidence: Evidence;
+}
+
+export type Platform = 'spotify' | 'apple' | 'youtube' | 'youtubeMusic' | 'deezer';
+
+/** "resolved" = we found the actual item; "search" = a search URL, NOT a verified match. */
+export interface PlatformLink {
+  platform: Platform;
+  url: string;
+  kind: 'resolved' | 'search';
+  id?: string;
+}
+
+export interface TrackView extends MediaTrack {
+  links: PlatformLink[];
+}
+
+export interface DiscoveryResult {
+  media: Media;
+  tracks: TrackView[];
+  releases: Release[];
+  errors: string[];
+  sources: string[];
+  generatedAt: string;
+}

@@ -17,11 +17,10 @@ function groupKey(c: TrackClaim): string {
  *  - unverified: everything else (never shown as fact)
  * A provider failing never aborts discovery; its error is returned in `errors`.
  */
-export async function discover(
+export async function collectClaims(
   media: Media,
   providers: DiscoveryProvider[],
-  resolver?: RecordingResolver,
-): Promise<{ tracks: MediaTrack[]; errors: string[] }> {
+): Promise<{ claims: TrackClaim[]; errors: string[] }> {
   const errors: string[] = [];
   const claims: TrackClaim[] = [];
   for (const p of providers) {
@@ -31,6 +30,26 @@ export async function discover(
       errors.push(`${p.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  return { claims, errors };
+}
+
+export async function discover(
+  media: Media,
+  providers: DiscoveryProvider[],
+  resolver?: RecordingResolver,
+): Promise<{ tracks: MediaTrack[]; errors: string[] }> {
+  const collected = await collectClaims(media, providers);
+  const built = await buildTracks(media, collected.claims, resolver);
+  return { tracks: built.tracks, errors: [...collected.errors, ...built.errors] };
+}
+
+/** Merge claims, resolve recordings, assign status. */
+export async function buildTracks(
+  media: Media,
+  claims: TrackClaim[],
+  resolver?: RecordingResolver,
+): Promise<{ tracks: MediaTrack[]; errors: string[] }> {
+  const errors: string[] = [];
 
   const groups = new Map<string, TrackClaim[]>();
   for (const c of claims) {

@@ -160,7 +160,7 @@ What exists (Node 22.18+, no dependencies; `npm test`, `npm run slime`): domain 
 Important caveats:
 - My sandbox's network policy blocks Wikipedia, AniList, MusicBrainz and Deezer (403), so the live adapters are UNTESTED. Run them locally or from an unrestricted environment.
 - `data/ground-truth/slime.s1.json` is built from web-search summaries only (no primary page read). Sai asked GPT and me to both verify it; GPT, please check it against the listed sources, especially OP2/ED2 and the episode-23 insert song, which the seed does not yet include.
-- No AI-extraction provider yet; it needs network + an LLM key and should be judged against the verified ground truth.
+- UPDATE: the full stack is now on the branch (see `docs/PROTOTYPE_RUNBOOK.md`): HTTP server + job progress API, JSON store, web UI (search, progress, filters, per-track platform links, OST release section), Wikipedia+LLM extractor with a verbatim-quote guard, Deezer link resolver, search-link fallbacks. 27 tests + 17 headless-browser checks pass offline; all live adapters are untested.
 
 ---
 
