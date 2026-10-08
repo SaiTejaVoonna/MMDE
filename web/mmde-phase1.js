@@ -48,9 +48,183 @@
       el('strong', {}, (i + 1) + '. ' + p.title),
       el('small', {}, (p.year || 'TBA') + (p.id === currentId ? ' · you are here' : ''))
     )));
-  const musicCard = () => el('div', { class: 'card' }, el('h3', {}, 'Music'), el('p', { class: 'note' }, 'Soundtrack and song discovery for this title is the next step. Nothing is hosted or streamed here: it will link out to Spotify, Apple Music and YouTube.'));
+
+  // ---- Your library: followed titles and favorite songs. Saved in this browser only (browser storage); nothing is sent anywhere.
+  const LIB_KEY = 'mmde.library.v1';
+  const loadLib = () => {
+    try { const x = JSON.parse(localStorage.getItem(LIB_KEY) || 'null'); if (x && typeof x.follows === 'object' && typeof x.favorites === 'object') return x; } catch (e) { /* private mode etc. */ }
+    return { follows: {}, favorites: {} };
+  };
+  let lib = loadLib();
+  const libWatchers = new Set(); // repaint callbacks for buttons that show library state
+  const saveLib = () => {
+    try { localStorage.setItem(LIB_KEY, JSON.stringify(lib)); } catch (e) { /* storage unavailable: library lasts until the page closes */ }
+    refreshNav();
+    libWatchers.forEach((f) => f());
+  };
+  const trackKey = (filmId, section, title) => filmId + '|' + section + '|' + title.toLowerCase();
+  const PLATFORMS = [['youtube', 'YouTube'], ['spotify', 'Spotify'], ['apple', 'Apple Music'], ['deezer', 'Deezer']];
+  const searchLink = (p, q) => {
+    const e = encodeURIComponent(q);
+    return { youtube: 'https://www.youtube.com/results?search_query=' + e, spotify: 'https://open.spotify.com/search/' + e, apple: 'https://music.apple.com/search?term=' + e, deezer: 'https://www.deezer.com/search/' + e }[p];
+  };
+  const fmtLen = (sec) => (sec ? Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') : '');
+  const safeUrl = (u) => (/^https:\/\//.test(u) ? u : '#');
+
+  const navEl = el('nav', { class: 'topnav' });
+  const refreshNav = () => {
+    navEl.replaceChildren(
+      el('button', { type: 'button', class: 'navbtn', onclick: () => { backFn = () => renderSearch(''); showLibrary('list'); } }, 'My list ' + Object.keys(lib.follows).length),
+      el('button', { type: 'button', class: 'navbtn', onclick: () => { backFn = () => renderSearch(''); showLibrary('favorites'); } }, '♥ Favorites ' + Object.keys(lib.favorites).length));
+  };
+  const topBar = document.querySelector('.top');
+  if (topBar) topBar.insertBefore(navEl, topBar.querySelector('.badge-proto'));
+
+  const followButton = (d) => {
+    const btn = el('button', { type: 'button', class: 'followbtn' });
+    const paint = () => { const on = !!lib.follows[d.id]; btn.textContent = on ? '✓ Following' : '+ Follow'; btn.classList.toggle('on', on); };
+    libWatchers.add(() => { if (btn.isConnected) paint(); else libWatchers.forEach((f) => { if (f.btn === btn) libWatchers.delete(f); }); });
+    [...libWatchers].pop().btn = btn;
+    btn.addEventListener('click', () => {
+      if (lib.follows[d.id]) delete lib.follows[d.id];
+      else lib.follows[d.id] = { id: d.id, title: d.title, kind: d.kind, year: d.year, posterPath: d.posterPath, at: Date.now() };
+      saveLib(); paint();
+    });
+    paint();
+    return btn;
+  };
+
+  // One song row: platform buttons (exact = verified catalog match, dashed = search only) and a favorite heart.
+  const trackRow = (film, section, t, initial) => {
+    const links = {};
+    PLATFORMS.forEach(([p]) => { links[p] = { url: searchLink(p, t.title + ' ' + film.title), kind: 'search' }; });
+    let art = '';
+    const fav = () => lib.favorites[trackKey(film.id, section, t.title)];
+    const row = el('div', { class: 'trow' });
+    const heart = el('button', { type: 'button', class: 'heart', 'aria-label': 'Favorite' });
+    const paintHeart = () => { const on = !!fav(); heart.textContent = on ? '♥' : '♡'; heart.classList.toggle('on', on); heart.title = on ? 'Remove from favorites' : 'Add to favorites (also follows the title)'; };
+    const draw = () => {
+      row.replaceChildren(
+        el('span', { class: 'tno' }, t.no || ''),
+        art ? el('img', { class: 'tart', src: safeUrl(art), alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' }) : el('span', { class: 'tart blank' }),
+        el('span', { class: 'tinfo' }, el('strong', {}, t.title), el('small', {}, [(t.artists || []).join(', '), fmtLen(t.lengthSec)].filter(Boolean).join(' · '))),
+        el('span', { class: 'tpills' }, PLATFORMS.map(([p, name]) => el('a', {
+          class: 'plink ' + (links[p].kind === 'resolved' ? 'exact' : 'guess'), 'data-p': p, href: safeUrl(links[p].url), target: '_blank', rel: 'noopener noreferrer',
+          title: links[p].kind === 'resolved' ? 'Exact match on ' + name : 'Opens a ' + name + ' search (not a verified match)'
+        }, name))),
+        heart);
+      paintHeart();
+    };
+    heart.addEventListener('click', () => {
+      const k = trackKey(film.id, section, t.title);
+      if (lib.favorites[k]) delete lib.favorites[k];
+      else {
+        lib.favorites[k] = { key: k, filmId: film.id, filmTitle: film.title, filmPoster: film.posterPath, section, no: t.no, title: t.title, artists: t.artists || [], lengthSec: t.lengthSec, links, art, at: Date.now() };
+        if (!lib.follows[film.id]) lib.follows[film.id] = { id: film.id, title: film.title, kind: film.kind || 'movie', year: film.year, posterPath: film.posterPath, at: Date.now() };
+      }
+      saveLib(); paintHeart();
+    });
+    const set = (r) => {
+      (r.links || []).forEach((l) => { if (links[l.platform] && /^https:\/\//.test(l.url)) links[l.platform] = { url: l.url, kind: l.kind === 'resolved' ? 'resolved' : 'search' }; });
+      if (r.art && /^https:\/\//.test(r.art)) art = r.art;
+      draw();
+    };
+    if (initial) { (initial.links ? Object.entries(initial.links).forEach(([p, l]) => { if (links[p] && l && /^https:\/\//.test(l.url)) links[p] = { url: l.url, kind: l.kind === 'resolved' ? 'resolved' : 'search' }; }) : 0); if (initial.art && /^https:\/\//.test(initial.art)) art = initial.art; }
+    draw();
+    return { el: row, set, resolve: async () => {
+      try { set(await call('/api/track-links?title=' + encodeURIComponent(t.title) + '&film=' + encodeURIComponent(film.title) + '&artist=' + encodeURIComponent((t.artists || []).slice(0, 3).join('|')))); }
+      catch (e) { /* keep the search links; they still work */ }
+      // keep a saved favorite in step with newly found links
+      const f = fav(); if (f) { f.links = links; f.art = art; saveLib(); }
+    } };
+  };
+
+  let viewToken = 0;
+  const resolveQueue = (rows, token, concurrency) => {
+    let i = 0;
+    const worker = async () => { while (i < rows.length && token === viewToken) { const r = rows[i++]; await r.resolve(); } };
+    return Promise.all(Array.from({ length: concurrency }, worker));
+  };
+
+  const soundtrackCard = (d) => {
+    const body = el('div', {});
+    const card = el('div', { class: 'card' }, el('h3', {}, 'Soundtrack'), body);
+    const token = viewToken;
+    body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Looking for the soundtrack on Wikipedia...')));
+    const film = { id: d.id, title: d.title, kind: d.kind, year: d.year, posterPath: d.posterPath };
+    const yt = el('a', { href: safeUrl(searchLink('youtube', d.title + ' ' + (d.year || '') + ' soundtrack')), target: '_blank', rel: 'noopener noreferrer' }, 'Search YouTube for the ' + d.title + ' soundtrack');
+    call('/api/soundtrack?title=' + encodeURIComponent(d.title) + (d.year ? '&year=' + d.year : '')).then((r) => {
+      if (token !== viewToken) return;
+      const st = r.soundtrack;
+      if (!st || !st.sections || !st.sections.length) { body.replaceChildren(el('p', { class: 'note' }, 'No soundtrack list was found on Wikipedia for this title yet. '), yt); return; }
+      const total = st.sections.reduce((n, x) => n + x.tracks.length, 0);
+      const toResolve = [];
+      const sections = st.sections.map((sec, idx) => {
+        const rows = sec.tracks.map((t) => trackRow(film, sec.name, t));
+        const big = sec.tracks.length > 12;
+        const det = el('details', { class: 'tsection' }, ...[
+          el('summary', {}, sec.name + ' · ' + sec.tracks.length + ' tracks'),
+          big ? el('button', { type: 'button', class: 'chip findbtn', onclick: (e) => { e.target.disabled = true; e.target.textContent = 'Finding exact links... (about ' + Math.ceil(rows.length * 3 / 2 / 60 * 10) / 10 + ' min)'; resolveQueue(rows, token, 2).then(() => { e.target.textContent = 'Done: exact links shown where found'; }); } }, 'Find exact Apple Music / Deezer links (' + rows.length + ' songs, takes a while)') : null,
+          ...rows.map((r) => r.el)].filter(Boolean));
+        if (idx < 2) det.open = true;
+        if (!big) toResolve.push(...rows);
+        return det;
+      });
+      body.replaceChildren(
+        el('p', { class: 'note' }, total + ' tracks in ' + st.sections.length + ' sections. Buttons marked solid are verified Apple Music or Deezer matches; dashed ones open a search. MMDE never plays or hosts audio.'),
+        ...sections,
+        el('p', { class: 'note' }, 'Tracklist from ', el('a', { href: safeUrl(st.page.url), target: '_blank', rel: 'noopener noreferrer' }, 'Wikipedia: ' + st.page.title), ' (CC BY-SA 4.0).'));
+      resolveQueue(toResolve, token, 2);
+    }).catch((e) => { if (token === viewToken) body.replaceChildren(el('p', { class: 'note' }, 'Could not load the soundtrack: ' + e.message + ' '), yt); });
+    return card;
+  };
+
+  const showLibrary = (view) => {
+    window.scrollTo(0, 0); viewToken++;
+    const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); renderSearch(''); } }, '← Home');
+    const tabs = el('div', { class: 'chips fchips' },
+      el('button', { type: 'button', class: 'chip' + (view === 'list' ? ' active' : ''), onclick: () => showLibrary('list') }, 'My list ' + Object.keys(lib.follows).length),
+      el('button', { type: 'button', class: 'chip' + (view === 'favorites' ? ' active' : ''), onclick: () => showLibrary('favorites') }, '♥ Favorites ' + Object.keys(lib.favorites).length));
+    const stuff = [back, el('h2', { style: 'margin:10px 0' }, view === 'list' ? 'My list' : 'Favorites'), tabs];
+    if (view === 'list') {
+      const items = Object.values(lib.follows).sort((a, b) => b.at - a.at);
+      stuff.push(items.length ? el('div', { class: 'postergrid' }, items.map((f) => {
+        const favCount = Object.values(lib.favorites).filter((x) => x.filmId === f.id).length;
+        return el('div', { class: 'pcard' },
+          el('button', { type: 'button', class: 'pcardopen', onclick: () => { backFn = () => showLibrary('list'); showDetails({ id: f.id, type: f.kind, title: f.title }); } }, poster(f.posterPath, 'w342'), el('strong', {}, f.title), el('small', {}, [f.kind, f.year, favCount ? '♥ ' + favCount : ''].filter(Boolean).join(' · '))),
+          el('button', { type: 'button', class: 'unfollow', onclick: () => { delete lib.follows[f.id]; saveLib(); showLibrary('list'); } }, 'Unfollow'));
+      })) : el('p', { class: 'note' }, 'Nothing here yet. Open a movie or show and press "+ Follow".'));
+    } else {
+      const favs = Object.values(lib.favorites);
+      const byFilm = {};
+      favs.forEach((f) => { (byFilm[f.filmId] = byFilm[f.filmId] || []).push(f); });
+      if (!favs.length) stuff.push(el('p', { class: 'note' }, 'No favorite songs yet. Press the ♡ on any song in a soundtrack.'));
+      Object.values(byFilm).forEach((list) => {
+        const film = { id: list[0].filmId, title: list[0].filmTitle, posterPath: list[0].filmPoster };
+        const bySection = {};
+        list.sort((a, b) => (a.no || 0) - (b.no || 0)).forEach((f) => { (bySection[f.section] = bySection[f.section] || []).push(f); });
+        stuff.push(el('div', { class: 'card' },
+          el('h3', {}, film.title),
+          ...Object.entries(bySection).flatMap(([sec, songs]) => [el('p', { class: 'note' }, sec), ...songs.map((f) => trackRow(film, f.section, { no: f.no, title: f.title, artists: f.artists, lengthSec: f.lengthSec }, f).el)])));
+      });
+      stuff.push(el('div', { class: 'chips', style: 'margin-top:18px' },
+        el('button', { type: 'button', class: 'chip', onclick: () => {
+          const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify(lib, null, 2)], { type: 'application/json' })), download: 'mmde-library.json' });
+          document.body.append(a); a.click(); a.remove();
+        } }, 'Export backup'),
+        el('label', { class: 'chip' }, 'Import backup', el('input', { type: 'file', accept: 'application/json', style: 'display:none', onchange: (e) => {
+          const file = e.target.files && e.target.files[0]; if (!file) return;
+          file.text().then((txt) => {
+            const x = JSON.parse(txt);
+            if (!x || typeof x.follows !== 'object' || typeof x.favorites !== 'object') throw new Error('not an MMDE backup');
+            lib = { follows: { ...lib.follows, ...x.follows }, favorites: { ...lib.favorites, ...x.favorites } }; saveLib(); showLibrary('favorites');
+          }).catch((err) => window.alert('Could not import: ' + err.message));
+        } }))));
+    }
+    app.replaceChildren(...stuff);
+  };
   const showDetails = async (media) => {
-    window.scrollTo(0, 0);
+    window.scrollTo(0, 0); viewToken++;
     const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); backFn(); } }, '← Back');
     if (!/^tmdb-(tv|movie|collection)-\d+$/.test(media.id)) {
       app.replaceChildren(back,
@@ -69,8 +243,10 @@
         d.tagline ? el('p', { class: 'tagline' }, d.tagline) : null,
         chips([d.kind === 'collection' ? 'collection' : d.kind, d.year, mins(d.runtimeMin), d.voteAverage ? '★ ' + d.voteAverage : null, langName(d.originalLanguage), d.kind === 'collection' ? (d.parts || []).length + ' films' : null].concat(d.genres || [])),
         d.spokenLanguages && d.spokenLanguages.length ? el('p', { class: 'note' }, 'Spoken languages: ' + d.spokenLanguages.join(', ')) : null,
-        d.overview ? el('p', { class: 'overview' }, d.overview) : null));
+        d.overview ? el('p', { class: 'overview' }, d.overview) : null,
+        followButton(d)));
     const parts = [back, hero];
+    if (d.kind !== 'collection') parts.push(soundtrackCard(d));
     if (d.kind === 'collection') {
       parts.push(el('div', { class: 'card' }, el('h3', {}, 'Films in release order'), el('p', { class: 'note' }, 'TMDB gives release order. Story (chronological) order is not in TMDB.'), filmGrid(d.parts || [], null)));
     }
@@ -89,7 +265,7 @@
           el('strong', {}, s.name || ('Season ' + s.seasonNumber)),
           el('small', {}, (s.episodeCount || 0) + ' episodes' + (s.airDate ? ' · ' + s.airDate.slice(0, 4) : '') + (s.voteAverage ? ' · ★ ' + s.voteAverage : '')))))));
     }
-    parts.push(musicCard());
+    if (d.kind === 'collection') parts.push(el('div', { class: 'card' }, el('h3', {}, 'Music'), el('p', { class: 'note' }, 'Open a film above to see its soundtrack. Follow the collection to keep all its films in My list.')));
     app.replaceChildren(...parts);
   };
   let backFn = () => renderSearch('');
@@ -182,5 +358,6 @@
     sb.input.focus();
     if (initial) sb.input.setSelectionRange(initial.length, initial.length);
   };
+  refreshNav();
   renderSearch('');
 })();

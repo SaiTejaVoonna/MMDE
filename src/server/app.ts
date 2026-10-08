@@ -10,6 +10,8 @@ import { newSteps, runDiscovery, type Deps, type Step } from './runner.ts';
 import type { Store } from './store.ts';
 import { organize } from '../app/organize.ts';
 import { tmdbSeasons, tmdbDetails, type TmdbSeason, type TmdbDetails } from '../providers/tmdb.ts';
+import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
+import type { TrackLinksResult, TrackQuery } from '../providers/trackLinks.ts';
 import { decideCors } from './cors.ts';
 import { clientKey, createRateLimiter, type Limit } from './rateLimit.ts';
 
@@ -22,15 +24,19 @@ export interface AppDeps extends Deps {
   allowedOrigins?: string[];
   /** Trust X-Forwarded-For for rate limiting (only behind a proxy such as Railway). */
   trustProxy?: boolean;
-  /** Per-client limits. Defaults: 120 API calls/min, 12 discovery jobs/min. */
+  /** Per-client limits. Defaults: 300 API calls/min, 12 discovery jobs/min. */
   rateLimit?: { general: Limit; discover: Limit };
   /** Injectable for tests; defaults to the real TMDB season lookup. */
   seasons?: (media: Media, token: string) => Promise<TmdbSeason[]>;
   /** Injectable for tests; defaults to the real TMDB details lookup (movie, tv or collection). */
   details?: (id: string, token: string) => Promise<TmdbDetails>;
+  /** Wikipedia tracklist lookup. Absent (offline mode) = the endpoint answers 503. */
+  soundtrack?: (title: string, year?: number) => Promise<Soundtrack | null>;
+  /** Per-track Apple Music / Deezer match. Absent = 503. */
+  trackLinks?: (q: TrackQuery) => Promise<TrackLinksResult>;
 }
 
-const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 120 }, discover: { windowMs: 60_000, max: 12 } };
+const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 300 }, discover: { windowMs: 60_000, max: 12 } };
 const TMDB_TV_ID = /^tmdb-tv-\d{1,10}$/;
 const TMDB_ID = /^tmdb-(tv|movie|collection)-\d{1,10}$/;
 
@@ -70,6 +76,7 @@ export function createApp(deps: AppDeps): Server {
   const generalLimiter = createRateLimiter(limits.general);
   const discoverLimiter = createRateLimiter(limits.discover);
   const getSeasons = deps.seasons ?? tmdbSeasons;
+  const soundtrackCache = new Map<string, { at: number; value: Soundtrack | null }>();
   const getDetails = deps.details ?? ((id: string, token: string) => tmdbDetails(id, token));
 
   /**
@@ -152,6 +159,31 @@ export function createApp(deps: AppDeps): Server {
         if (!TMDB_ID.test(id)) return send(res, 400, { error: 'invalid id (expected tmdb-tv-, tmdb-movie- or tmdb-collection- plus a number)' });
         try { return send(res, 200, await getDetails(id, deps.tmdbToken)); }
         catch (e) { return send(res, 502, { error: `details lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
+      if (req.method === 'GET' && path === '/api/soundtrack') {
+        if (!deps.soundtrack) return send(res, 503, { error: 'soundtrack lookup is not available on this server' });
+        const title = (url.searchParams.get('title') ?? '').trim();
+        const yearRaw = url.searchParams.get('year');
+        const year = yearRaw && /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : undefined;
+        if (title.length < 2 || title.length > 120) return send(res, 400, { error: 'title must be 2-120 characters' });
+        const key = `${title.toLowerCase()}|${year ?? ''}`;
+        const hit = soundtrackCache.get(key);
+        if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, { soundtrack: hit.value });
+        try {
+          const value = await deps.soundtrack(title, year);
+          soundtrackCache.set(key, { at: Date.now(), value });
+          if (soundtrackCache.size > 500) soundtrackCache.delete(soundtrackCache.keys().next().value as string);
+          return send(res, 200, { soundtrack: value });
+        } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
+      if (req.method === 'GET' && path === '/api/track-links') {
+        if (!deps.trackLinks) return send(res, 503, { error: 'track links are not available on this server' });
+        const title = (url.searchParams.get('title') ?? '').trim();
+        const film = (url.searchParams.get('film') ?? '').trim();
+        const artists = (url.searchParams.get('artist') ?? '').split('|').map((x) => x.trim()).filter(Boolean).slice(0, 4);
+        if (title.length < 1 || title.length > 140 || film.length > 140) return send(res, 400, { error: 'invalid title or film' });
+        try { return send(res, 200, await deps.trackLinks({ title, artists, film })); }
+        catch (e) { return send(res, 502, { error: `track link lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/media') return send(res, 200, { items: await deps.store.list() });
       if (req.method === 'GET' && path.startsWith('/api/media/')) {

@@ -190,7 +190,12 @@ test('frontend files: no credentials, no token storage, loads config.js first, u
     assert.ok(!/TMDB_READ_ACCESS_TOKEN\s*[:=]\s*['"]?\w{8,}/.test(text), `${name}: env value`);
   }
   const phase1 = readFileSync(join(dir, 'mmde-phase1.js'), 'utf8');
-  assert.ok(!/localStorage|sessionStorage/.test(phase1), 'phase1 must not store anything credential-like in the browser');
+  // The browser may keep ONLY the user's own library (followed titles, favorite songs) in localStorage, under one fixed key.
+  assert.ok(!/sessionStorage|indexedDB|document\.cookie/.test(phase1), 'no other browser storage');
+  const storageLines = phase1.split('\n').filter((l) => /localStorage/.test(l));
+  assert.ok(storageLines.length > 0 && storageLines.every((l) => /LIB_KEY/.test(l)), 'every localStorage use goes through the library key');
+  assert.match(phase1, /const LIB_KEY = 'mmde\.library\.v1'/);
+  assert.ok(!/localStorage[^;]*(token|secret|password|apikey)/i.test(phase1), 'never store credentials');
   assert.match(phase1, /MMDE_CONFIG/);
   assert.match(phase1, /API_BASE \+ path/);
   assert.ok(!/fetch\(\s*['"]\/api/.test(phase1), 'no hardcoded relative fetch');
