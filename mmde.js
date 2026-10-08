@@ -415,9 +415,9 @@
   // src/providers/wikipedia.ts
   function mediaType(title, snippet) {
     const text = `${title} ${snippet}`.toLowerCase();
-    if (/(anime|manga)/.test(text)) return "anime";
-    if (/(tv series|television series|television show|tv show|series)/.test(text)) return "tv";
-    if (/(film|movie)/.test(text)) return "movie";
+    if (/\b(anime|manga)\b/.test(text)) return "anime";
+    if (/\b(tv series|television series|television show|tv show|series)\b/.test(text)) return "tv";
+    if (/\b(film|movie)\b/.test(text)) return "movie";
     return "other";
   }
   function wikipediaResolver(fetchImpl = fetch) {
@@ -1148,14 +1148,14 @@ ${text}`;
           return el(
             "button",
             { type: "button", onclick: () => {
-              location.hash = `#/media/${encodeURIComponent(m.id)}`;
+              location.hash = `#/select/${encodeURIComponent(m.id)}`;
             } },
             m.title,
             el("small", {}, `${m.type}${m.year ? " \xB7 " + m.year : ""}`)
           );
         }));
         suggest.hidden = r.results.length === 0;
-        status.textContent = r.results.length ? "" : `No results from: ${r.sources.join(", ")}.` + (r.errors.length ? ` Errors: ${r.errors.join("; ")}` : "");
+        status.textContent = r.results.length ? `Found ${r.results.length} matches \xB7 ${r.sources.join(" \xB7 ")}` : "No matching media found.";
       } catch (e) {
         status.textContent = `Search failed: ${e.message}`;
       }
@@ -1179,7 +1179,6 @@ ${text}`;
           input.focus();
           run();
         } }, t))),
-        el("div", { class: "note" }, "Without live providers only the local sample (Slime) is known. Other titles need live providers."),
         el("div", { class: "note" }, `Mode: ${api.modeLabel}`),
         settingsPanel()
       )
@@ -1380,9 +1379,32 @@ ${text}`;
       el("div", {}, save, " ", msg2)
     );
   }
+  async function selectPage(id) {
+    const media = mediaCache.get(id);
+    if (!media) {
+      location.hash = "#/";
+      return;
+    }
+    $app.replaceChildren(
+      el("a", { href: "#/" }, "\u2190 Back to search"),
+      header(media),
+      el(
+        "div",
+        { class: "card" },
+        el("h3", {}, "Phase 1 \xB7 Media found"),
+        el("p", { class: "note" }, "This is only the media-resolution phase. MMDE has identified the title; music discovery has not started yet."),
+        el("div", { class: "meta" }, `Source IDs: ${Object.entries(media.externalIds || {}).map(([k, v]) => `${k}:${v}`).join(" \xB7 ") || "none"}`),
+        el("button", { class: "btn", type: "button", onclick: () => {
+          location.hash = `#/media/${encodeURIComponent(media.id)}`;
+        } }, "Phase 2 \xB7 Discover music")
+      )
+    );
+  }
   function route() {
+    const select = location.hash.match(/^#\/select\/(.+)$/);
     const m = location.hash.match(/^#\/media\/(.+)$/);
-    if (m) mediaPage(decodeURIComponent(m[1]));
+    if (select) selectPage(decodeURIComponent(select[1]));
+    else if (m) mediaPage(decodeURIComponent(m[1]));
     else landing();
   }
   function mountUI(root, apiImpl) {
