@@ -25,7 +25,7 @@ export async function collectClaims(media: Media, providers: DiscoveryProvider[]
   for (const p of providers) {
     for (const target of discoveryTargets(media)) {
       try { claims.push(...(await p.discover(target))); }
-      catch (e) { errors.push(`${p.name} [${target.title}]: ${e instanceof Error ? e.message : String(e)}`); }
+      catch (e) { errors.push(target.id === media.id ? `${p.name}: ${e instanceof Error ? e.message : String(e)}` : `${p.name} [${target.title}]: ${e instanceof Error ? e.message : String(e)}`); }
     }
   }
   return { claims, errors };
