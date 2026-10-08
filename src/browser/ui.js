@@ -36,11 +36,11 @@ function landing() {
       lastSearch = { query: q, sources: r.sources, errors: r.errors, count: r.results.length };
       suggest.replaceChildren(...r.results.map((m) => {
         mediaCache.set(m.id, m);
-        return el('button', { type: 'button', onclick: () => { location.hash = `#/media/${encodeURIComponent(m.id)}`; } },
+        return el('button', { type: 'button', onclick: () => { location.hash = `#/select/${encodeURIComponent(m.id)}`; } },
           m.title, el('small', {}, `${m.type}${m.year ? ' · ' + m.year : ''}`));
       }));
       suggest.hidden = r.results.length === 0;
-      status.textContent = r.results.length ? '' : `No results from: ${r.sources.join(', ')}.` + (r.errors.length ? ` Errors: ${r.errors.join('; ')}` : '');
+      status.textContent = r.results.length ? `Found ${r.results.length} matches · ${r.sources.join(' · ')}` : 'No matching media found.';
     } catch (e) { status.textContent = `Search failed: ${e.message}`; }
   };
   input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 250); });
@@ -53,7 +53,7 @@ function landing() {
       status,
       el('div', { class: 'note' }, 'Try:'),
       el('div', { class: 'chips' }, examples.map((t) => el('button', { class: 'chip', type: 'button', onclick: () => { input.value = t; input.focus(); run(); } }, t))),
-      el('div', { class: 'note' }, 'Without live providers only the local sample (Slime) is known. Other titles need live providers.'),
+
       el('div', { class: 'note' }, `Mode: ${api.modeLabel}`),
       settingsPanel(),
     ),
@@ -181,9 +181,28 @@ function settingsPanel() {
     key, el('div', {}, save, ' ', msg));
 }
 
+async function selectPage(id) {
+  const media = mediaCache.get(id);
+  if (!media) { location.hash = '#/'; return; }
+  $app.replaceChildren(
+    el('a', { href: '#/' }, '← Back to search'),
+    header(media),
+    el('div', { class: 'card' },
+      el('h3', {}, 'Phase 1 · Media found'),
+      el('p', { class: 'note' }, 'This is only the media-resolution phase. MMDE has identified the title; music discovery has not started yet.'),
+      el('div', { class: 'meta' }, `Source IDs: ${Object.entries(media.externalIds || {}).map(([k,v]) => `${k}:${v}`).join(' · ') || 'none'}`),
+      ),
+      el('button', { class: 'btn', type: 'button', onclick: () => { location.hash = `#/media/${encodeURIComponent(media.id)}`; } }, 'Phase 2 · Discover music')
+    )
+  );
+}
+
 function route() {
+  const select = location.hash.match(/^#\/select\/(.+)$/);
   const m = location.hash.match(/^#\/media\/(.+)$/);
-  if (m) mediaPage(decodeURIComponent(m[1])); else landing();
+  if (select) selectPage(decodeURIComponent(select[1]));
+  else if (m) mediaPage(decodeURIComponent(m[1]));
+  else landing();
 }
 export function mountUI(root, apiImpl) {
   $app = root;
