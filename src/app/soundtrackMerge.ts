@@ -3,7 +3,7 @@ import type { Soundtrack } from '../providers/wikiSoundtrack.ts';
 import type { CatalogAlbum, CatalogTrack } from '../providers/catalogAlbums.ts';
 import type { AnimeThemesEntry } from '../providers/animeThemesSearch.ts';
 import { languageFromName, type MbRelease } from '../providers/mbReleases.ts';
-import { artistMatches, isFilmAlbum, looseFold } from '../providers/catalogAlbums.ts';
+import { artistMatches, isFilmAlbum, looseFold, nameMatchesDistinctiveTitle } from '../providers/catalogAlbums.ts';
 import { classifyForSeason, seasonMarkers, type SeasonFit } from './seasonScope.ts';
 
 // Phase A: merge every soundtrack source we have into ONE organized list, and say how much each song can be trusted.
@@ -192,7 +192,7 @@ export function mergeSoundtrack(wiki: Soundtrack | null, fetched: AlbumWithTrack
       if (known) { addEvidence(known, ev); known.links.deezer ??= t.url; continue; }
       // A playlist is only a pointer: if the song's OWN album is named after the title (and credited to the composer when we know one),
       // the song is an official release, so it earns catalog-level evidence instead of staying "community only".
-      const albumFits = !!t.album && (opts.titles ?? []).some((x) => isFilmAlbum(x, t.album!)) && (!(opts.composers ?? []).length || (opts.composers ?? []).some((c) => t.artists.some((a) => artistMatches(a, c))));
+      const albumFits = !!t.album && (nameMatchesDistinctiveTitle(t.album, opts.titles ?? []) || ((opts.titles ?? []).some((x) => isFilmAlbum(x, t.album!)) && (!(opts.composers ?? []).length || (opts.composers ?? []).some((c) => t.artists.some((a) => artistMatches(a, c))))));
       const evidence: Evidence[] = albumFits ? [{ source: 'deezer', label: `Deezer: ${t.album} (the song's own album, found through a community playlist)` }, ev] : [ev];
       const m: MergedTrack = { key, no: t.no, title: t.title, artists: t.artists, lengthSec: t.lengthSec, confidence: albumFits ? 'amber' : 'red', evidence, links: { deezer: t.url }, art: t.art ?? album.art };
       byKey.set(key, m); fresh.push(m);
