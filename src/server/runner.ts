@@ -1,4 +1,4 @@
-import type { DiscoveryResult, Media, Release, TrackView } from '../domain/types.ts';
+import type { DiscoveryResult, Media, PlatformLink, Release, TrackView } from '../domain/types.ts';
 import { buildTracks, collectClaims, discoveryTargets } from '../app/discover.ts';
 import { buildLinks } from '../links/platforms.ts';
 import type { DiscoveryProvider, LinkResolver, RecordingResolver } from '../providers/types.ts';
@@ -20,12 +20,10 @@ export async function runDiscovery(media: Media, deps: Deps, onStep: (key: StepK
   const errors: string[] = [];
   const targets = discoveryTargets(media);
   onStep('media', 'done', `${media.title} · ${targets.length} related productions`);
-
   onStep('themes', 'running');
   const collected = await collectClaims(media, deps.providers);
   errors.push(...collected.errors);
   onStep('themes', 'done', `${collected.claims.length} claims from ${deps.providers.length} sources across ${targets.length} productions`);
-
   onStep('releases', 'running');
   const releases: Release[] = [];
   for (const p of deps.providers) {
@@ -36,16 +34,14 @@ export async function runDiscovery(media: Media, deps: Deps, onStep: (key: StepK
     }
   }
   onStep('releases', 'done', `${releases.length} releases`);
-
   onStep('matching', 'running');
   const built = await buildTracks(media, collected.claims, deps.recordingResolver);
   errors.push(...built.errors);
   onStep('matching', 'done', `${built.tracks.length} tracks`);
-
   onStep('links', 'running');
   const tracks: TrackView[] = [];
   for (const t of built.tracks) {
-    const resolved: ReturnType<LinkResolver['resolve']> extends Promise<infer X> ? X : never[] = [];
+    const resolved: PlatformLink[] = [];
     for (const lr of deps.linkResolvers) {
       try { resolved.push(...await lr.resolve(t)); } catch (e) { errors.push(`${lr.name}: ${msg(e)}`); }
     }
