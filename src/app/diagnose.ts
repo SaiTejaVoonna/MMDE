@@ -2,6 +2,7 @@ import type { Media } from '../domain/types.ts';
 import { buildDiagnostics } from '../browser/diagnostics.ts';
 import type { MediaResolver } from '../providers/types.ts';
 import { runDiscovery, type Deps } from '../server/runner.ts';
+import { mergeMediaResults } from './media.ts';
 
 export interface DiagnoseDeps {
   mediaResolvers: MediaResolver[];
@@ -29,8 +30,9 @@ export async function diagnoseTitle(query: string, deps: DiagnoseDeps): Promise<
     try { results.push(...(await r.search(query))); }
     catch (e) { errors.push(`${r.name}: ${e instanceof Error ? e.message : String(e)}`); }
   }
-  const lastSearch = { query, sources: deps.mediaResolvers.map((r) => r.name), errors, count: results.length };
-  const media = results[0];
+  const mergedResults = mergeMediaResults(results);
+  const lastSearch = { query, sources: deps.mediaResolvers.map((r) => r.name), errors, count: mergedResults.length };
+  const media = mergedResults[0];
   if (!media) {
     return {
       query,
