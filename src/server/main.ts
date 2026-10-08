@@ -74,7 +74,7 @@ createApp({
   trending: (kind, token) => tmdbTrending(token, kind, tmdbFetch),
   soundtrack: offline ? undefined : (title, year, alts) => wikiSoundtrack(userAgent, musicFetch).find(title, year, alts),
   trackLinks: offline ? undefined : ((r) => (q) => r.resolve(q))(trackLinkResolver(userAgent, musicFetch)),
-  ...(offline ? {} : ((c, at, mb, wd) => ({ albums: c.findAlbums, albumTracks: c.tracks, animeThemes: at.find, musicBrainz: mb.find, wikidata: wd.find }))(catalogResolver(userAgent, musicFetch), animeThemesSource(userAgent, musicFetch), mbReleaseSource(userAgent, musicFetch), wikidataTitleSource(userAgent, musicFetch))),
+  ...(offline ? {} : ((c, at, mb, wd) => ({ albums: c.findAlbums, albumTracks: c.tracks, animeThemes: at.find, musicBrainz: mb.find, wikidata: wd.find, wikidataComposers: wd.composers }))(catalogResolver(userAgent, musicFetch), animeThemesSource(userAgent, musicFetch), mbReleaseSource(userAgent, musicFetch), wikidataTitleSource(userAgent, musicFetch))),
   ...(offline ? {} : { deezerIsrc: deezerIsrcResolver(userAgent, musicFetch) }),
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),
 }).listen(port, () => {

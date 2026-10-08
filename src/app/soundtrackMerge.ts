@@ -49,6 +49,9 @@ export interface MergedSoundtrack {
   /** Albums/playlists that were found but dropped because neither artist nor songs matched this title. */
   skipped: Array<{ name: string; platform: string; reason: string }>;
   counts: { green: number; amber: number; red: number; total: number };
+  /** The composer(s) used to verify albums, and where they came from. */
+  composers?: string[];
+  composerSource?: 'tmdb' | 'wikidata';
   /** Per-source outcome of this lookup. */
   sources?: SourceStatus[];
   /** Languages of the releases found, with song counts. */

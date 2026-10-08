@@ -17,6 +17,8 @@ export interface SoundtrackSources {
   musicBrainz?: (title: string, alts: string[], composers: string[]) => Promise<MbRelease[]>;
   /** Optional: the title in other languages (Wikidata). Widens catalog searches only. */
   wikidata?: (title: string, year?: number) => Promise<string[]>;
+  /** Optional: the composer(s) Wikidata lists for the film. Used only when TMDB lists none. */
+  wikidataComposers?: (title: string, year?: number) => Promise<string[]>;
   /** Max time to wait for any one album's track list. Slower ones are skipped and the result is flagged partial. */
   timeoutMs?: number;
 }
@@ -53,10 +55,16 @@ export function belongsToTitle(album: CatalogAlbum, tracks: CatalogTrack[], comp
 }
 
 export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[]; anime?: boolean; fast?: boolean; season?: { number: number; airYear?: number } } = {}): Promise<MergedSoundtrack> {
-  const composers = ctx.composers ?? [];
+  let composers = ctx.composers ?? [];
+  let composerSource: 'tmdb' | 'wikidata' | undefined = composers.length ? 'tmdb' : undefined;
   // Other-language names from Wikidata join the TMDB ones (one extra slot: catalogs are searched with the first 3, and each search costs a rate-limited call).
+  // When TMDB lists no composer, Wikidata's composer for the same film and year fills the gap.
   let wd: string[] = [];
-  if (src.wikidata && !ctx.fast) { try { wd = await withTimeout(src.wikidata(title, year), 8000); } catch { /* optional source */ } }
+  if (!ctx.fast && (src.wikidata || (!composers.length && src.wikidataComposers))) {
+    const [t, c] = await Promise.allSettled([src.wikidata ? withTimeout(src.wikidata(title, year), 8000) : Promise.resolve([] as string[]), !composers.length && src.wikidataComposers ? withTimeout(src.wikidataComposers(title, year), 8000) : Promise.resolve([] as string[])]);
+    if (t.status === 'fulfilled') wd = t.value;
+    if (c.status === 'fulfilled' && c.value.length) { composers = c.value; composerSource = 'wikidata'; }
+  }
   const base = ctx.alts ?? [];
   const alts = [...new Set([...base.slice(0, 2), ...wd.filter((x) => !base.includes(x)).slice(0, 1), ...base.slice(2), ...wd.slice(1)])].slice(0, 8);
   const [w, a, at, mb] = await Promise.allSettled([src.wiki(title, year, alts), src.albums(title, year, undefined, alts), ctx.anime && !ctx.fast && src.animeThemes ? src.animeThemes(title, alts, year) : Promise.resolve([] as AnimeThemesEntry[]), src.musicBrainz && !ctx.fast ? src.musicBrainz(title, alts, composers) : Promise.resolve([] as MbRelease[])]);
@@ -98,5 +106,5 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
     ...(ctx.anime ? [{ key: 'animethemes' as const, label: 'AnimeThemes', state: state(at, animeThemes.length, !!ctx.fast), detail: ctx.fast ? 'checking…' : at.status === 'rejected' ? 'could not be reached' : animeThemes.length ? `${animeThemes.length} season entr${animeThemes.length === 1 ? 'y' : 'ies'}` : 'nothing found' }] : []),
     ...(src.wikidata ? [{ key: 'wikidata' as const, label: 'Wikidata names', state: ctx.fast ? 'pending' as const : wd.length ? 'ok' as const : 'empty' as const, detail: ctx.fast ? 'checking…' : wd.length ? `${wd.length} other-language title${wd.length === 1 ? '' : 's'}` : 'none found' }] : []),
   ];
-  return { ...merged, sources };
+  return { ...merged, sources, composers, composerSource };
 }

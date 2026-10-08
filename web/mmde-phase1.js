@@ -213,7 +213,7 @@
     for (const it of items) if (it.t.proof && it.t.proof.release) rels.set(it.t.proof.releaseUrl || it.t.proof.release, it.t.proof);
     const rows = [...rels.values()].slice(0, 8);
     return el('details', { class: 'knowbox' }, el('summary', {}, 'How we know'),
-      el('p', { class: 'note' }, 'Composer (from TMDB): ' + (d.composers && d.composers.length ? d.composers.join(', ') : 'not listed')),
+      el('p', { class: 'note' }, 'Composer' + (m.composerSource === 'wikidata' ? ' (TMDB lists none; from Wikidata)' : ' (from TMDB)') + ': ' + ((m.composers && m.composers.length) || (d.composers && d.composers.length) ? (m.composers && m.composers.length ? m.composers : d.composers).join(', ') : 'not listed')),
       el('p', { class: 'note' }, VERIFIED_TEXT[m.verified] || ''),
       el('p', { class: 'note' }, 'Confirmed means two or more independent sources list the song. MMDE reads catalog data (titles, labels, dates, codes) and never the audio.'),
       rows.length ? el('div', {}, el('p', { class: 'note' }, 'Official releases found (MusicBrainz):'), el('ul', { class: 'knowlist' }, rows.map((r) => el('li', {}, el('a', { href: safeUrl(r.releaseUrl || ''), target: '_blank', rel: 'noopener noreferrer' }, r.release), [r.label, r.releaseDate, r.upc ? 'UPC ' + r.upc : ''].filter(Boolean).map((x) => ' · ' + x).join(''))))) : el('p', { class: 'note' }, 'No official release record was found on MusicBrainz for this title.'));

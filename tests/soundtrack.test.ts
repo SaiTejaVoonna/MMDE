@@ -66,13 +66,14 @@ test('acceptCandidate: same title + same singer on a DIFFERENT release is reject
   assert.equal(acceptCandidate(q, { ...other, lengthSec: 262 }), false, 'length 262 s vs 216 s');
   assert.equal(acceptCandidate(q, { ...other, year: 2018 }), false, 'released 2018, film is 2022');
   assert.equal(acceptCandidate(q, { ...other, lengthSec: 217, year: 2022 }), true, 'same length and year');
-  assert.equal(acceptCandidate({ ...q, lengthSec: undefined, year: undefined }, other), true, 'no extra info: artist match as before');
+  assert.equal(acceptCandidate({ ...q, lengthSec: undefined, year: undefined }, other), false, 'artist match alone, with nothing to compare: not verified, keep the search link');
+  assert.equal(acceptCandidate({ ...q, lengthSec: undefined }, { ...other, year: 2022 }), true, 'year agrees when length is unknown');
   assert.equal(acceptCandidate(q, { ...other, album: 'RRR (Telugu)', lengthSec: 262 }), true, 'the film album itself is always fine');
 });
 
 test('acceptCandidate: needs a close title AND a matching artist or the film album', () => {
-  const q = { title: 'Firestorm', artists: ['Thaman S'], film: 'They Call Him OG' };
-  const c = { platform: 'apple' as const, url: 'u', id: '1', title: 'Firestorm', artists: ['Thaman S'], album: 'x' };
+  const q = { title: 'Firestorm', artists: ['Thaman S'], film: 'They Call Him OG', lengthSec: 240, year: 2025 };
+  const c = { platform: 'apple' as const, url: 'u', id: '1', title: 'Firestorm', artists: ['Thaman S'], album: 'x', lengthSec: 241, year: 2025 };
   assert.equal(acceptCandidate(q, c), true);
   assert.equal(acceptCandidate(q, { ...c, artists: ['Someone Else'], album: 'Random Hits' }), false, 'same title, wrong artist and album');
   assert.equal(acceptCandidate(q, { ...c, artists: ['Someone Else'], album: 'They Call Him OG (Original Motion Picture Soundtrack)' }), true, 'film album rescues a missing artist');
