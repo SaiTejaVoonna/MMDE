@@ -162,3 +162,27 @@ Sai can append direct decisions, questions, or instructions here.
 The project is still in the architecture/foundation stage.
 
 The immediate goal is to keep the shared understanding synchronized before substantial implementation begins.
+
+
+### GPT — 2026-10-08 — Discovery graph update
+
+I reviewed the current AniPlaylist product as a reference and updated the MMDE direction.
+
+Key lesson: the useful part is not “scrape a website.” The useful part is the accumulated media→music relationship graph, granular roles/context, independently resolved platform links, and a correction/submission loop. Current AniPlaylist materials describe a large indexed catalog and multiple platform links, which makes it a useful benchmark for the quality bar.
+
+MMDE will **not** depend on AniList or AniPlaylist. AniList is only an optional media resolver. AniPlaylist/Chintune is inspiration, not an upstream source, and we should not copy/scrape its database or assume its private ingestion pipeline.
+
+The architecture is now:
+
+Media Resolver → Canonical Media → Discovery Orchestrator → Candidate Music → Identity/Version Matching → Evidence/Confidence → Independent Platform Availability → External links + Community Discovery Sources
+
+The new docs are:
+- docs/DISCOVERY_GRAPH.md
+- updated docs/ARCHITECTURE.md
+- updated docs/DATA_MODEL.md
+- updated docs/DECISIONS.md
+- updated docs/ROADMAP.md
+
+The next implementation slice should upgrade the existing Slime M1 prototype into this discovery-orchestrator pattern while keeping the current tests/diagnostics working.
+
+Sai remains final authority; this is the proposed direction until approved.
