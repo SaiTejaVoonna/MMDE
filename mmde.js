@@ -688,9 +688,53 @@ ${text}`;
     };
   }
 
+  // src/browser/diagnostics.ts
+  var clip = (s, n = 200) => s.length > n ? s.slice(0, n) + "..." : s;
+  function buildDiagnostics(r, c) {
+    const failed = (name) => r.errors.filter((e) => e.startsWith(`${name}:`) || e.startsWith(`${name} (`));
+    const lines = [];
+    lines.push("MMDE DIAGNOSTICS");
+    lines.push(`generated: ${c.now}`);
+    lines.push(`result generatedAt: ${r.generatedAt}`);
+    lines.push(`mode: ${c.modeLabel}`);
+    lines.push(`live providers: ${c.live == null ? "n/a" : c.live ? "on" : "off"}; AI extractor key set: ${c.hasApiKey == null ? "n/a" : c.hasApiKey ? "yes" : "no"}`);
+    if (c.url) lines.push(`page: ${c.url}`);
+    if (c.userAgent) lines.push(`browser: ${c.userAgent}`);
+    lines.push("");
+    lines.push(`MEDIA: ${r.media.title} (${r.media.type}${r.media.year ? ", " + r.media.year : ""}) id=${r.media.id} externalIds=${JSON.stringify(r.media.externalIds)}`);
+    if (c.lastSearch) {
+      lines.push(`LAST SEARCH: "${c.lastSearch.query}" -> ${c.lastSearch.count} results from [${c.lastSearch.sources.join(", ")}]` + (c.lastSearch.errors.length ? `; errors: ${c.lastSearch.errors.join(" | ")}` : "; no errors"));
+    }
+    lines.push("");
+    lines.push("PROVIDERS (configured -> errors reported)");
+    for (const s of r.sources) {
+      const f = failed(s);
+      lines.push(`- ${s}: ${f.length ? "ERRORS: " + f.join(" | ") : "no error reported"}`);
+    }
+    const other = r.errors.filter((e) => !r.sources.some((s) => e.startsWith(`${s}:`) || e.startsWith(`${s} (`)));
+    if (other.length) lines.push(`other errors: ${other.join(" | ")}`);
+    lines.push(`all errors (${r.errors.length}): ${r.errors.length ? r.errors.join(" | ") : "none"}`);
+    lines.push("");
+    const counts = { confirmed: 0, suggested: 0, unverified: 0 };
+    for (const t of r.tracks) counts[t.status]++;
+    lines.push(`TRACKS: ${r.tracks.length} total; confirmed ${counts.confirmed}, suggested ${counts.suggested}, unverified ${counts.unverified}`);
+    for (const t of r.tracks) {
+      const part = t.part.number != null ? `${t.part.kind} ${t.part.number}` : t.part.kind;
+      lines.push(`- [${t.status}] ${part} / ${t.role}${t.position ? " " + t.position : ""}: "${t.title}" - ${t.artists.join(", ") || "unknown"} | version=${t.version} confidence=${t.confidence} matchScore=${t.matchScore ?? "none"}` + (t.recording ? ` | mbid=${t.recording.mbid ?? "-"} isrc=${t.recording.isrcs.join(",") || "-"}` : " | no recording match"));
+      for (const e of t.evidence) lines.push(`    evidence: ${e.provider} ${e.url ?? "(no url)"}${e.quote ? ` "${clip(e.quote)}"` : ""}`);
+      const resolved = t.links.filter((l) => l.kind === "resolved").map((l) => l.platform);
+      lines.push(`    links: ${resolved.length ? "resolved=" + resolved.join(",") : "all search links (none resolved)"}`);
+    }
+    lines.push("");
+    lines.push(`RELEASES: ${r.releases.length}`);
+    for (const x of r.releases) lines.push(`- ${x.kind} "${x.title}" - ${x.artists.join(", ")}${x.label ? " | " + x.label : ""}${x.trackCount ? " | " + x.trackCount + " tracks" : ""} | source ${x.evidence.url ?? "(none)"}`);
+    return lines.join("\n");
+  }
+
   // src/browser/ui.js
   var $app;
   var api;
+  var lastSearch = null;
   var mediaCache = /* @__PURE__ */ new Map();
   var el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -728,6 +772,7 @@ ${text}`;
       try {
         const r = await api.search(q);
         if (mine !== seq) return;
+        lastSearch = { query: q, sources: r.sources, errors: r.errors, count: r.results.length };
         suggest.replaceChildren(...r.results.map((m) => {
           mediaCache.set(m.id, m);
           return el(
@@ -830,6 +875,32 @@ ${text}`;
     );
     return el("div", { class: "track" }, row, detail);
   }
+  function diagButton(r) {
+    const st = api.settings ? api.settings.get() : null;
+    const text = () => buildDiagnostics(r, {
+      modeLabel: api.modeLabel,
+      live: st ? !!st.live : void 0,
+      hasApiKey: st ? !!st.anthropicKey : void 0,
+      url: location.href,
+      userAgent: navigator.userAgent,
+      now: (/* @__PURE__ */ new Date()).toISOString(),
+      lastSearch: lastSearch || void 0
+    });
+    const msg2 = el("span", { class: "note" });
+    const box = el("pre", { class: "diag", hidden: true });
+    const btn = el("button", { class: "btn ghost", type: "button", id: "copy-diag", onclick: async () => {
+      const t = text();
+      box.textContent = t;
+      box.hidden = false;
+      try {
+        await navigator.clipboard.writeText(t);
+        msg2.textContent = "Copied. Paste it into the chat.";
+      } catch {
+        msg2.textContent = "Could not copy automatically. Select the text below and copy it.";
+      }
+    } }, "Copy diagnostics");
+    return el("span", {}, btn, " ", msg2, box);
+  }
   function resultView(r, filter, rerender, onRefresh) {
     const counts = { confirmed: 0, suggested: 0, unverified: 0 };
     r.tracks.forEach((t) => counts[t.status]++);
@@ -870,7 +941,8 @@ ${text}`;
           el("span", { class: "st suggested" }, `${counts.suggested} suggested`),
           el("span", { class: "st unverified" }, `${counts.unverified} unverified`),
           el("span", {}, `sources: ${r.sources.join(", ")}`),
-          el("button", { class: "btn ghost", type: "button", onclick: onRefresh }, "Re-discover")
+          el("button", { class: "btn ghost", type: "button", onclick: onRefresh }, "Re-discover"),
+          diagButton(r)
         ),
         el("div", { class: "chips" }, ROLE_FILTERS.map((f) => el("button", { class: `chip ${f === filter ? "on" : ""}`, type: "button", onclick: () => rerender(f) }, f)))
       ),
