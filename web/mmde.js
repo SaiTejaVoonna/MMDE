@@ -210,6 +210,12 @@
     }
     return prev[b.length];
   }
+  function sameArtist(a, b) {
+    if (similarity(a, b) >= 0.85) return true;
+    const ta = a.split(" ").sort().join(" ");
+    const tb = b.split(" ").sort().join(" ");
+    return ta.length > 0 && similarity(ta, tb) >= 0.9;
+  }
   function similarity(a, b) {
     if (!a && !b) return 1;
     if (!a || !b) return 0;
@@ -255,20 +261,46 @@
   }
 
   // src/providers/musicbrainz.ts
-  function musicBrainzResolver(userAgent, fetchImpl = fetch) {
-    const wait = createRateLimiter(1100);
+  function sortNameToName(sortName) {
+    const [last, first] = sortName.split(",").map((s) => s.trim());
+    return last && first ? `${first} ${last}` : sortName.trim();
+  }
+  function creditNames(r) {
+    const names = /* @__PURE__ */ new Set();
+    for (const c of r["artist-credit"] ?? []) {
+      if (c.name) names.add(c.name);
+      if (c.artist?.name) names.add(c.artist.name);
+      if (c.artist?.["sort-name"]) names.add(sortNameToName(c.artist["sort-name"]));
+    }
+    return [...names];
+  }
+  function musicBrainzResolver(userAgent, fetchImpl = fetch, opts = {}) {
+    const wait = createRateLimiter(opts.intervalMs ?? 1100);
+    const backoff = opts.backoffMs ?? 2e3;
+    const retries = opts.retries ?? 2;
+    const clean = (s) => s.replace(/"/g, "");
+    async function search(query) {
+      const url = `https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(query)}&fmt=json&limit=25&inc=isrcs+artist-credits`;
+      for (let attempt = 0; ; attempt++) {
+        await wait();
+        const res = await fetchImpl(url, { headers: { ...userAgent ? { "User-Agent": userAgent } : {}, Accept: "application/json" } });
+        if (res.status === 503 && attempt < retries) {
+          await new Promise((r) => setTimeout(r, backoff * (attempt + 1)));
+          continue;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status} from MusicBrainz`);
+        return (await res.json()).recordings ?? [];
+      }
+    }
     return {
       name: "musicbrainz",
       async resolve(title, artists) {
-        await wait();
-        const q = `recording:"${title.replace(/"/g, "")}"` + (artists[0] ? ` AND artist:"${artists[0].replace(/"/g, "")}"` : "");
-        const url = `https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(q)}&fmt=json&limit=10&inc=isrcs`;
-        const res = await fetchImpl(url, { headers: { ...userAgent ? { "User-Agent": userAgent } : {}, Accept: "application/json" } });
-        if (!res.ok) throw new Error(`HTTP ${res.status} from MusicBrainz`);
-        const data = await res.json();
-        return (data.recordings ?? []).map((r) => ({
+        const byTitle = `recording:"${clean(title)}"`;
+        let found = artists[0] ? await search(`${byTitle} AND artist:"${clean(artists[0])}"`) : [];
+        if (found.length === 0) found = await search(byTitle);
+        return found.map((r) => ({
           title: r.title,
-          artists: (r["artist-credit"] ?? []).map((a) => a.name),
+          artists: creditNames(r),
           durationSec: r.length ? Math.round(r.length / 1e3) : void 0,
           mbid: r.id,
           isrcs: r.isrcs ?? [],
@@ -383,7 +415,7 @@ ${text}`;
     const titleSim = similarity(normalizeTitle(claim.title), normalizeTitle(cand.title));
     const claimArtists = claim.artists.map(normalizeArtist).filter(Boolean);
     const candArtists = cand.artists.map(normalizeArtist).filter(Boolean);
-    const artistHit = claimArtists.length === 0 ? 0 : claimArtists.filter((a) => candArtists.some((c) => similarity(a, c) >= 0.85)).length / claimArtists.length;
+    const artistHit = claimArtists.length === 0 ? 0 : claimArtists.filter((a) => candArtists.some((c) => sameArtist(a, c))).length / claimArtists.length;
     let score = titleSim * 0.55 + artistHit * 0.4;
     reasons.push(`title ${titleSim.toFixed(2)}`, `artist ${artistHit.toFixed(2)}`);
     if (claim.durationSec && cand.durationSec && claimVersion !== "tv_size") {

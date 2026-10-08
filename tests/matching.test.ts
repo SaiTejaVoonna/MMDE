@@ -63,3 +63,13 @@ test('bestMatch skips version-incompatible candidates', () => {
   const m = bestMatch(claim('Song', ['X']), [rec('Song (Live)', ['X']), rec('Song', ['X'])]);
   assert.equal(m?.candidate.title, 'Song');
 });
+
+test('romanized artist matches via sort-name variant and swapped name order', () => {
+  const c = claim('Nameless Story', ['Takuma Terashima']);
+  const viaSortName = scoreMatch(c, rec('Nameless Story', ['寺島拓篤', 'Takuma Terashima']));
+  assert.ok(viaSortName.score >= 0.9, String(viaSortName.score));
+  const swapped = scoreMatch(c, rec('Nameless Story', ['Terashima Takuma']));
+  assert.ok(swapped.score >= 0.9, String(swapped.score));
+  const wrong = scoreMatch(c, rec('Nameless Story', ['寺島拓篤']));
+  assert.ok(wrong.score <= 0.5, 'a Japanese-only credit still cannot confirm on title alone: ' + wrong.score);
+});

@@ -1,5 +1,5 @@
 import type { RecordingCandidate, TrackClaim, VersionKind } from '../domain/types.ts';
-import { classifyVersion, normalizeArtist, normalizeTitle, similarity } from './normalize.ts';
+import { classifyVersion, normalizeArtist, normalizeTitle, sameArtist, similarity } from './normalize.ts';
 
 export interface MatchResult {
   score: number; // 0..1
@@ -35,7 +35,7 @@ export function scoreMatch(claim: TrackClaim, cand: RecordingCandidate): MatchRe
   const artistHit =
     claimArtists.length === 0
       ? 0
-      : claimArtists.filter((a) => candArtists.some((c) => similarity(a, c) >= 0.85)).length / claimArtists.length;
+      : claimArtists.filter((a) => candArtists.some((c) => sameArtist(a, c))).length / claimArtists.length;
 
   let score = titleSim * 0.55 + artistHit * 0.4;
   reasons.push(`title ${titleSim.toFixed(2)}`, `artist ${artistHit.toFixed(2)}`);

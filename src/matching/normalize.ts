@@ -51,6 +51,14 @@ function levenshtein(a: string, b: string): number {
   return prev[b.length]!;
 }
 
+/** Order-insensitive artist comparison for romanized names. */
+export function sameArtist(a: string, b: string): boolean {
+  if (similarity(a, b) >= 0.85) return true;
+  const ta = a.split(' ').sort().join(' ');
+  const tb = b.split(' ').sort().join(' ');
+  return ta.length > 0 && similarity(ta, tb) >= 0.9;
+}
+
 /** 0..1 string similarity on already-normalized strings. */
 export function similarity(a: string, b: string): number {
   if (!a && !b) return 1;
