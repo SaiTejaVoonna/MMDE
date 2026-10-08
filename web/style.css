@@ -210,3 +210,13 @@ button.tlitem:hover .tlgo{text-decoration:underline}
 @keyframes rot{to{transform:rotate(360deg)}}
 .pending-note{color:#f1d28a}
 @media (prefers-reduced-motion:reduce){.skel-head,.skel-art,.skel-line,.spin,.loading-fill{animation:none}}
+
+/* Phase 2: sort / filter / group toolbar */
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0 6px;align-items:center}
+.tq{flex:1 1 220px;min-width:180px;height:38px;border-radius:99px;border:1px solid #2c3a55;background:rgba(17,24,39,.9);color:var(--text);padding:0 16px;font-size:13px}
+.tq:focus,.tsel:focus{outline:none;border-color:#6d8fff;box-shadow:0 0 0 3px rgba(110,168,255,.12)}
+.tsel{height:38px;border-radius:99px;border:1px solid #2c3a55;background:rgba(17,24,39,.9);color:var(--text);padding:0 14px;font-size:13px;max-width:100%}
+.chip.tog.active{background:rgba(110,168,255,.16);border-color:#6ea8ff;color:#dbe7ff}
+.chip .n{opacity:.7;margin-left:2px}
+.tcount{display:flex;gap:10px;align-items:center}
+.fchips{justify-content:flex-start}

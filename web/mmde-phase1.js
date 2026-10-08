@@ -63,6 +63,7 @@
     refreshNav();
     libWatchers.forEach((f) => f());
   };
+  const saveLibQuiet = () => { try { localStorage.setItem(LIB_KEY, JSON.stringify(lib)); } catch (e) { /* storage unavailable */ } };
   const trackKey = (filmId, section, title) => filmId + '|' + section + '|' + title.toLowerCase();
   const PLATFORMS = [['spotify', 'Spotify'], ['apple', 'Apple Music'], ['youtube', 'YouTube'], ['youtubeMusic', 'YouTube Music'], ['deezer', 'Deezer']];
   // Small simplified glyphs (not the official logos), drawn inline so nothing external is loaded.
@@ -166,12 +167,14 @@
     if (initial) { (initial.links ? Object.entries(initial.links).forEach(([p, l]) => { if (links[p] && l && /^https:\/\//.test(l.url)) links[p] = { url: l.url, kind: l.kind === 'resolved' ? 'resolved' : 'search' }; }) : 0); if (initial.art && /^https:\/\//.test(initial.art)) art = initial.art; }
     draw();
     if (meta && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); seen = true; loadIsrc(); } }); io.observe(row); }
-    return { el: row, set, resolve: async () => {
+    const handle = { el: row, set, done: false, resolve: async () => {
+      if (handle.done) return; handle.done = true;
       try { set(await call('/api/track-links?title=' + encodeURIComponent(t.title) + '&film=' + encodeURIComponent(film.title) + '&artist=' + encodeURIComponent((t.artists || []).slice(0, 3).join('|')) + (t.lengthSec ? '&length=' + t.lengthSec : '') + (film.year ? '&year=' + film.year : ''))); }
       catch (e) { /* keep the search links; they still work */ }
       // keep a saved favorite in step with newly found links
       const f = fav(); if (f) { f.links = links; f.art = art; saveLib(); }
     } };
+    return handle;
   };
 
   let viewToken = 0;
@@ -211,58 +214,129 @@
       }
       rendered = true;
       const toResolve = [];
-      const buildSection = (sec, idx) => {
-        const rows = sec.tracks.map((t) => {
-          const initial = { links: {}, art: t.art };
-          if (t.links.apple) initial.links.apple = { url: t.links.apple, kind: 'resolved' };
-          if (t.links.deezer) initial.links.deezer = { url: t.links.deezer, kind: 'resolved' };
-          const r = trackRow(film, sec.name, t, initial, { confidence: t.confidence, evidence: t.evidence, proof: t.proof, versions: t.versions });
-          r.missing = !(t.links.apple && t.links.deezer);
-          return r;
-        });
-        const big = rows.length > 12;
-        const det = el('details', { class: 'tsection' + (sec.origin === 'community' ? ' tcommunity' : '') }, ...[
-          el('summary', {}, sec.name + (sec.language && !sec.name.includes(sec.language) ? ' · ' + sec.language : '') + ' · ' + rows.length + (rows.length === 1 ? ' track' : ' tracks')),
-          big ? el('button', { type: 'button', class: 'chip findbtn', onclick: (e) => { const todo = rows.filter((r) => r.missing); e.target.disabled = true; e.target.textContent = 'Finding exact links for ' + todo.length + ' songs... (a few minutes)'; resolveQueue(todo, token, 2).then(() => { e.target.textContent = 'Done: exact links shown where found'; }); } }, 'Find missing Apple Music / Deezer links (takes a while)') : null,
-          el('div', { class: 'tbody' }, ...rows.map((r) => r.el))].filter(Boolean));
-        det.dataset.name = sec.name;
-        if (sec.language) det.dataset.lang = sec.language;
-        if (openNames.size ? openNames.has(sec.name) : (idx < 2 && sec.origin !== 'community')) det.open = true;
-        if (!big) toResolve.push(...rows.filter((r) => r.missing));
-        return det;
+      const makeRow = (sec, t) => {
+        const initial = { links: {}, art: t.art };
+        if (t.links.apple) initial.links.apple = { url: t.links.apple, kind: 'resolved' };
+        if (t.links.deezer) initial.links.deezer = { url: t.links.deezer, kind: 'resolved' };
+        const r = trackRow(film, sec.name, t, initial, { confidence: t.confidence, evidence: t.evidence, proof: t.proof, versions: t.versions });
+        r.missing = !(t.links.apple && t.links.deezer);
+        return r;
       };
       const matchSecs = scope ? m.sections.filter((x) => x.scope === 'match') : m.sections;
       const otherSecs = scope ? m.sections.filter((x) => x.scope !== 'match') : [];
-      const sections = matchSecs.map(buildSection);
-      const otherNodes = otherSecs.map((sec, i) => buildSection(sec, 99 + i));
+      // Every song becomes one item whose row element is created once; sorting/filtering/grouping only re-arranges these elements.
+      const items = matchSecs.flatMap((sec, si) => sec.tracks.map((t, ti) => ({ sec, si, ti, t, r: makeRow(sec, t) })));
+      const prefs = lib.prefs || (lib.prefs = {});
+      const st = { q: '', sort: prefs.sort || 'original', group: prefs.group || 'section', conf: 'all', type: 'all', source: 'all', lang: 'All', origOnly: false, direct: false, fav: false };
+      const wrap = el('div', { class: 'tview-cards' });
+      const listBox = el('div', { class: 'tlist' });
+      const countNote = el('p', { class: 'note tcount' });
+      const confBtns = {}; const langBtns = {};
+      const norm = (x) => String(x || '').toLowerCase();
+      const passes = (it, ignoreConf) => {
+        const t = it.t;
+        if (!ignoreConf && st.conf !== 'all' && t.confidence !== st.conf) return false;
+        if (st.type !== 'all' && (t.type || 'song') !== st.type) return false;
+        if (st.source !== 'all' && !t.evidence.some((e) => e.source === st.source)) return false;
+        if (st.lang !== 'All' && it.sec.language !== st.lang) return false;
+        if (st.origOnly && t.version && t.version !== 'original') return false;
+        if (st.direct && !(t.links.apple || t.links.deezer)) return false;
+        if (st.fav && !lib.favorites[trackKey(film.id, it.sec.name, t.title)]) return false;
+        if (st.q && !(norm(t.title) + ' ' + norm((t.artists || []).join(' '))).includes(norm(st.q))) return false;
+        return true;
+      };
+      const CONF_RANK = { green: 0, amber: 1, red: 2 };
+      const dateOf = (it) => (it.sec.releaseDate || '').slice(0, 10) || '9999';
+      const SORTS = {
+        original: { label: 'Original order', cmp: (a, b) => a.si - b.si || a.ti - b.ti },
+        dateAsc: { label: 'Release date: oldest first', cmp: (a, b) => dateOf(a).localeCompare(dateOf(b)) || a.si - b.si || a.ti - b.ti },
+        dateDesc: { label: 'Release date: newest first', cmp: (a, b) => (dateOf(a) === '9999' ? 1 : dateOf(b) === '9999' ? -1 : dateOf(b).localeCompare(dateOf(a))) || a.si - b.si || a.ti - b.ti },
+        confidence: { label: 'Most confirmed first', cmp: (a, b) => CONF_RANK[a.t.confidence] - CONF_RANK[b.t.confidence] || a.si - b.si || a.ti - b.ti },
+        title: { label: 'Title A to Z', cmp: (a, b) => a.t.title.localeCompare(b.t.title, undefined, { sensitivity: 'base' }) },
+        length: { label: 'Longest first', cmp: (a, b) => (b.t.lengthSec || 0) - (a.t.lengthSec || 0) },
+      };
+      const TYPE_LABEL = { song: 'Songs', score: 'Background score', opening: 'Openings', ending: 'Endings' };
+      const GROUPS = {
+        section: { label: 'Group by album / list', key: (it) => it.sec.name + (it.sec.language && !it.sec.name.includes(it.sec.language) ? ' · ' + it.sec.language : '') },
+        language: { label: 'Group by language', key: (it) => it.sec.language || 'Language not stated' },
+        type: { label: 'Group by type', key: (it) => TYPE_LABEL[it.t.type || 'song'] },
+        year: { label: 'Group by release year', key: (it) => (dateOf(it) === '9999' ? 'Date not stated' : dateOf(it).slice(0, 4)) },
+        none: { label: 'One list (no groups)', key: () => 'All songs' },
+      };
+      const groupNode = (name, list, open) => {
+        const rows = list.map((it) => it.r);
+        const big = rows.length > 12;
+        const det = el('details', { class: 'tsection' + (list.every((it) => it.sec.origin === 'community') ? ' tcommunity' : '') }, ...[
+          el('summary', {}, name + ' · ' + rows.length + (rows.length === 1 ? ' track' : ' tracks')),
+          big ? el('button', { type: 'button', class: 'chip findbtn', onclick: (e) => { const todo = rows.filter((r) => r.missing && !r.done); e.target.disabled = true; e.target.textContent = 'Finding exact links for ' + todo.length + ' songs... (a few minutes)'; resolveQueue(todo, token, 2).then(() => { e.target.textContent = 'Done: exact links shown where found'; }); } }, 'Find missing Apple Music / Deezer links (takes a while)') : null,
+          el('div', { class: 'tbody' }, ...rows.map((r) => r.el))].filter(Boolean));
+        det.dataset.name = name;
+        if (open) det.open = true;
+        if (!big) resolveQueue(rows.filter((r) => r.missing && !r.done), token, 2);
+        return det;
+      };
+      let firstLayout = true;
+      const layout = () => {
+        const openNames = new Set([...listBox.querySelectorAll('details.tsection[open]')].map((x) => x.dataset.name));
+        const base = items.filter((it) => passes(it, true));
+        const vis = base.filter((it) => st.conf === 'all' || it.t.confidence === st.conf).sort(SORTS[st.sort].cmp);
+        const cnt = { green: 0, amber: 0, red: 0 }; base.forEach((it) => { cnt[it.t.confidence]++; });
+        Object.entries(confBtns).forEach(([k, b]) => { b.classList.toggle('active', st.conf === k); const n = k === 'all' ? base.length : cnt[k]; b.querySelector('.n').textContent = n; });
+        Object.entries(langBtns).forEach(([k, b]) => b.classList.toggle('active', st.lang === k));
+        const filtered = vis.length !== items.length;
+        countNote.replaceChildren(...['Showing ' + vis.length + ' of ' + items.length + ' songs' + (filtered ? '. ' : '.'), filtered ? el('button', { type: 'button', class: 'srcretry', onclick: clearAll }, 'Clear filters') : null].filter(Boolean));
+        if (!vis.length) { listBox.replaceChildren(el('p', { class: 'note' }, 'No songs match these filters. '), el('button', { type: 'button', class: 'chip', onclick: clearAll }, 'Clear filters')); return; }
+        const groups = new Map();
+        for (const it of vis) { const k = GROUPS[st.group].key(it); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(it); }
+        let gi = 0;
+        // Keep what the user had open when the same groups come back; a new set of groups (after changing "group by") opens its first two (all, for one list).
+        const keep = [...groups.keys()].some((k) => openNames.has(k));
+        const nodes = [...groups].map(([name, list]) => groupNode(name, list, keep ? openNames.has(name) : (st.group === 'none' || (gi++ < 2 && !list.every((x) => x.sec.origin === 'community')))));
+        firstLayout = false;
+        listBox.replaceChildren(...nodes);
+      };
+      const clearAll = () => { Object.assign(st, { q: '', conf: 'all', type: 'all', source: 'all', lang: 'All', origOnly: false, direct: false, fav: false }); syncControls(); layout(); };
+      const select = (opts, get, set, aria) => { const sel = el('select', { class: 'tsel', 'aria-label': aria, onchange: (e) => set(e.target.value) }, ...opts.map(([v, label]) => el('option', { value: v }, label))); sel.value = get(); return sel; };
+      const sources = [...new Set(items.flatMap((it) => it.t.evidence.map((e) => e.source)))].filter((x) => x !== 'credits');
+      const SRC_LABEL = { wikipedia: 'Wikipedia', apple: 'Apple Music', deezer: 'Deezer', musicbrainz: 'MusicBrainz', animethemes: 'AnimeThemes', community: 'Community playlist' };
+      const present = (k) => items.some((it) => (it.t.type || 'song') === k);
+      const qBox = el('input', { class: 'tq', type: 'search', placeholder: 'Search these songs…', 'aria-label': 'Search these songs', oninput: (e) => { st.q = e.target.value; layout(); } });
+      const sortSel = select(Object.entries(SORTS).map(([k, v]) => [k, v.label]), () => st.sort, (v) => { st.sort = v; prefs.sort = v; saveLibQuiet(); if (v !== 'original' && st.group === 'section') { st.group = 'none'; groupSel.value = 'none'; } layout(); }, 'Sort songs');
+      const groupSel = select(Object.entries(GROUPS).map(([k, v]) => [k, v.label]), () => st.group, (v) => { st.group = v; prefs.group = v; saveLibQuiet(); layout(); }, 'Group songs');
+      const typeSel = select([['all', 'All types'], ...Object.entries(TYPE_LABEL).filter(([k]) => present(k)).map(([k, v]) => [k, v])], () => st.type, (v) => { st.type = v; layout(); }, 'Filter by type');
+      const srcSel = select([['all', 'All sources'], ...sources.map((k) => [k, SRC_LABEL[k] || k])], () => st.source, (v) => { st.source = v; layout(); }, 'Filter by source');
+      const toggle = (label, key, title) => { const b = el('button', { type: 'button', class: 'chip tog', 'aria-pressed': 'false', title, onclick: () => { st[key] = !st[key]; layout(); syncControls(); } }, label); b.dataset.key = key; return b; };
+      const toggles = [toggle('Original versions only', 'origOnly', 'Hide instrumentals, remixes, covers, live and TV-size versions'), toggle('Direct links only', 'direct', 'Only songs that already have a direct Apple Music or Deezer link'), toggle('♥ Favorites only', 'fav', 'Only songs you hearted')];
+      const syncControls = () => { qBox.value = st.q; typeSel.value = st.type; srcSel.value = st.source; toggles.forEach((b) => { b.classList.toggle('active', !!st[b.dataset.key]); b.setAttribute('aria-pressed', String(!!st[b.dataset.key])); }); };
+      const confChip = (key, label, dot) => { const b = el('button', { type: 'button', class: 'chip' + (key === 'all' ? ' active' : ''), onclick: () => { st.conf = key; layout(); } }, dot ? el('span', { class: 'cdot cdot-' + dot }) : null, label + ' ', el('span', { class: 'n' }, '0')); confBtns[key] = b; return b; };
+      const langs = (m.languages || []).map((x) => x.language);
+      const otherNodes = otherSecs.map((sec, i) => { const rows = sec.tracks.map((t) => makeRow(sec, t)); rows.forEach((r) => { if (r.missing) toResolve.push(r); }); const det = el('details', { class: 'tsection' }, el('summary', {}, sec.name + ' · ' + rows.length + (rows.length === 1 ? ' track' : ' tracks')), el('div', { class: 'tbody' }, ...rows.map((r) => r.el))); det.dataset.name = sec.name; return det; });
       const c = m.counts;
-      const wrap = el('div', { class: 'tfilter-all tview-cards' });
-      const filterChip = (key, label, dot) => el('button', { type: 'button', class: 'chip' + (key === 'all' ? ' active' : ''), onclick: (e) => {
-        const chip = e.currentTarget; wrap.className = 'tfilter-' + key + ' ' + (wrap.classList.contains('tview-list') ? 'tview-list' : 'tview-cards'); chip.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === chip));
-      } }, dot ? el('span', { class: 'cdot cdot-' + dot }) : null, label);
       wrap.append(
         strip,
         ...(isFast ? [el('p', { class: 'note pending-note' }, el('span', { class: 'spin' }), 'Showing what we have so far. MusicBrainz, AnimeThemes and other-language names are still being checked, so more songs and proof lines may appear.')] : []),
         el('p', { class: 'note' }, c.total + ' songs found' + (m.wikipedia ? ' · tracklist from ' : ''), m.wikipedia ? el('a', { href: safeUrl(m.wikipedia.url), target: '_blank', rel: 'noopener noreferrer' }, 'Wikipedia') : null, m.wikipedia ? ' (CC BY-SA 4.0)' : '', '. MMDE never plays or hosts audio.'),
+        el('div', { class: 'toolbar' }, qBox, sortSel, groupSel, typeSel, srcSel),
         el('div', { class: 'chips fchips' },
-          filterChip('all', 'All ' + c.total),
-          filterChip('green', 'Confirmed ' + c.green, 'green'),
-          filterChip('amber', 'One source ' + c.amber, 'amber'),
-          filterChip('red', 'Unverified ' + c.red, 'red'),
+          confChip('all', 'All'), confChip('green', 'Confirmed', 'green'), confChip('amber', 'One source', 'amber'), confChip('red', 'Unverified', 'red'),
+          ...toggles,
           el('span', { class: 'viewtoggle' },
             el('button', { type: 'button', class: 'chip active', onclick: (e) => { wrap.classList.remove('tview-list'); wrap.classList.add('tview-cards'); e.currentTarget.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === e.currentTarget)); } }, 'Cards'),
             el('button', { type: 'button', class: 'chip', onclick: (e) => { wrap.classList.remove('tview-cards'); wrap.classList.add('tview-list'); e.currentTarget.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === e.currentTarget)); } }, 'List'))),
-        ...((m.languages || []).length >= 2 ? [el('div', { class: 'chips fchips' }, el('span', { class: 'note' }, 'Language: '), ...['All', ...m.languages.map((x) => x.language)].map((lang, i) => el('button', { type: 'button', class: 'chip' + (i === 0 ? ' active' : ''), onclick: (e) => { const chip = e.currentTarget; chip.parentElement.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === chip)); wrap.querySelectorAll('.tsection[data-lang]').forEach((x) => { x.hidden = lang !== 'All' && x.dataset.lang !== lang; }); } }, lang === 'All' ? 'All languages' : lang + ' ' + m.languages.find((x) => x.language === lang).songs)))] : []),
+        ...(langs.length >= 2 ? [el('div', { class: 'chips fchips' }, el('span', { class: 'note' }, 'Language: '), ...['All', ...langs].map((lang) => { const b = el('button', { type: 'button', class: 'chip' + (lang === 'All' ? ' active' : ''), onclick: () => { st.lang = lang; layout(); } }, lang === 'All' ? 'All languages' : lang + ' ' + m.languages.find((x) => x.language === lang).songs); langBtns[lang] = b; return b; }))] : []),
         el('p', { class: 'note' }, el('span', { class: 'cdot cdot-green' }), 'confirmed by 2+ independent sources   ', el('span', { class: 'cdot cdot-amber' }), 'one source   ', el('span', { class: 'cdot cdot-red' }), 'only in a community playlist. Solid buttons are direct catalog links; dashed ones open a search.'),
+        countNote,
         ...(scope ? [el('p', { class: 'note' }, 'Showing music that belongs to ' + (scope.name || 'Season ' + scope.number) + (scope.airYear ? ' (aired ' + scope.airYear + ')' : '') + '. Albums that name another season are hidden' + (m.season && m.season.excluded ? ' (' + m.season.excluded + ' hidden)' : '') + '.')] : []),
-        ...(scope && !sections.length ? [el('p', { class: 'note' }, 'Nothing was found that is tied to this season yet.')] : []),
-        ...sections,
+        ...(scope && !items.length ? [el('p', { class: 'note' }, 'Nothing was found that is tied to this season yet.')] : []),
+        listBox,
         ...(otherNodes.length ? [el('details', { class: 'tsection tother' }, el('summary', {}, 'Other music from the whole series, not tied to a season · ' + (otherSecs.reduce((n, x) => n + x.tracks.length, 0) === 1 ? '1 song' : otherSecs.reduce((n, x) => n + x.tracks.length, 0) + ' songs')), el('div', {}, ...otherNodes))] : []),
         ...(m.verified === 'none' ? [el('p', { class: 'note' }, 'We could not verify that these albums belong to this title: no composer credit on TMDB and no Wikipedia tracklist. They were matched by name only, so songs are marked unverified (red) unless two catalogs agree.')] : []),
         ...((m.skipped || []).length ? [el('p', { class: 'note' }, 'Skipped ' + m.skipped.length + (m.skipped.length === 1 ? ' album' : ' albums') + ' with the same name that did not match this title\'s composer: ' + m.skipped.map((x) => x.name).join('; ') + '.')] : []),
         ...(m.partial && !isFast ? [el('p', { class: 'note' }, 'Some sources were too slow or unreachable, so this list may be incomplete. ', el('button', { type: 'button', class: 'chip', onclick: reload }, 'Check again'))] : []),
         el('p', { class: 'note' }, 'Looking somewhere else? ', yt));
       body.replaceChildren(wrap);
+      syncControls();
+      layout();
       resolveQueue(toResolve, token, 2);
     };
 
