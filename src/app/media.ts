@@ -4,8 +4,9 @@ import { normalizeTitle } from '../matching/normalize.ts';
 export function mergeMediaResults(results: Media[]): Media[] {
   const byTitle = new Map<string, Media>();
   for (const media of results) {
-    const key = normalizeTitle(media.title);
-    if (!key) continue;
+    // A movie and a series can share a title (e.g. a show and its film), so they must not be merged.
+    const key = normalizeTitle(media.title) + (media.type === 'movie' ? '|movie' : '|series');
+    if (!normalizeTitle(media.title)) continue;
     const existing = byTitle.get(key);
     if (!existing) {
       byTitle.set(key, { ...media, altTitles: [...new Set(media.altTitles)] });

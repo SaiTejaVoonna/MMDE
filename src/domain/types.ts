@@ -19,6 +19,9 @@ export interface Media {
   partRef?: PartRef;
   relatedMedia?: Media[];
   relationType?: string;
+  posterPath?: string;
+  overview?: string;
+  popularity?: number;
 }
 
 export interface MediaPart extends PartRef { id: string; mediaId: string; title: string }

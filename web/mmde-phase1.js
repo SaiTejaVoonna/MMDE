@@ -72,7 +72,7 @@
       el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })),
       el('span', { class: 'loading-label' }, 'Searching MMDE...')
     );
-    const results = el('div', { class: 'suggest' });
+    const results = el('div', { class: 'suggest', style: 'max-height:70vh;overflow-y:auto' });
     const backend = el('div', { class: 'note backend-status', id: 'backend-status' }, configProblem || 'Checking backend...');
     if (!configProblem) {
       call('/api/health').then((h) => {
@@ -89,8 +89,9 @@
         const warn = 'TMDB could not be reached just now (network). Showing limited results - press Enter to search again.';
         if (!items.length) { status.textContent = tmdbDown ? warn : 'No matches found.'; return; }
         if (tmdbDown) { status.textContent = warn; results.append(el('div', { class: 'note', style: 'padding:8px 14px' }, warn)); }
-        results.append(...items.map(m => el('button', { type: 'button', onclick: () => showSeasons(m) },
-          m.title, el('small', {}, m.type + (m.year ? ' · ' + m.year : ''))
+        results.append(...items.map(m => el('button', { type: 'button', style: 'display:flex;gap:12px;align-items:center', onclick: () => showSeasons(m) },
+          m.posterPath ? el('img', { src: 'https://image.tmdb.org/t/p/w92' + m.posterPath, alt: '', width: 40, height: 60, loading: 'lazy', style: 'border-radius:6px;flex:0 0 auto;object-fit:cover' }) : null,
+          el('span', {}, m.title, el('small', {}, m.type + (m.year ? ' · ' + m.year : '')))
         )));
       } catch (e) {
         loading.hidden = true; status.textContent = e.message;

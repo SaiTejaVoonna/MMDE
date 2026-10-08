@@ -19,6 +19,7 @@ interface TmdbResult {
   release_date?: string;
   poster_path?: string | null;
   popularity?: number;
+  overview?: string;
   media_type?: string;
 }
 
@@ -52,7 +53,20 @@ function mapResult(m: TmdbResult, type: 'tv' | 'movie'): Media {
     altTitles: [type === 'tv' ? m.original_name : m.original_title].filter((x): x is string => !!x && x !== title),
     year: date ? Number(date.slice(0, 4)) : undefined,
     externalIds: { tmdb: String(m.id), tmdbType: type },
+    ...(m.poster_path ? { posterPath: m.poster_path } : {}),
+    ...(m.overview ? { overview: m.overview.slice(0, 220) } : {}),
+    ...(typeof m.popularity === 'number' ? { popularity: m.popularity } : {}),
   };
+}
+
+// Exact title first, then titles starting with the query, then the rest; most popular first inside each group.
+export function rankByQuery(items: Media[], query: string): Media[] {
+  const q = query.trim().toLowerCase();
+  const tier = (m: Media) => {
+    const names = [m.title, ...m.altTitles].map((t) => t.toLowerCase());
+    return names.includes(q) ? 0 : names.some((t) => t.startsWith(q)) ? 1 : 2;
+  };
+  return items.map((m, i) => ({ m, i })).sort((a, b) => tier(a.m) - tier(b.m) || (b.m.popularity ?? 0) - (a.m.popularity ?? 0) || a.i - b.i).map((x) => x.m);
 }
 
 export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): MediaResolver {
@@ -68,10 +82,11 @@ export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): Me
       if (!movieRes.ok) throw new Error(`HTTP ${movieRes.status} from TMDB movie search`);
       const tv = (await tvRes.json()) as { results?: TmdbResult[] };
       const movies = (await movieRes.json()) as { results?: TmdbResult[] };
-      return [
-        ...(tv.results ?? []).slice(0, 8).map((m) => mapResult(m, 'tv')),
-        ...(movies.results ?? []).slice(0, 5).map((m) => mapResult(m, 'movie')),
+      const all = [
+        ...(tv.results ?? []).slice(0, 12).map((m) => mapResult(m, 'tv')),
+        ...(movies.results ?? []).slice(0, 12).map((m) => mapResult(m, 'movie')),
       ];
+      return rankByQuery(all, query).slice(0, 15);
     },
   };
 }

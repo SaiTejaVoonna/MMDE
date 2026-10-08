@@ -32,3 +32,18 @@ test('tmdbResolver search recovers from one reset', async () => {
   const out = await tmdbResolver('t', f).search('slime');
   assert.equal(out[0]?.title, 'Slime');
 });
+
+import { rankByQuery } from '../src/providers/tmdb.ts';
+import { mergeMediaResults } from '../src/app/media.ts';
+import type { Media } from '../src/domain/types.ts';
+const m = (id: string, type: Media['type'], title: string, popularity = 0): Media => ({ id, type, title, altTitles: [], externalIds: {}, popularity });
+
+test('search ranking: exact title, then prefix, then rest by popularity', () => {
+  const out = rankByQuery([m('a', 'tv', 'Fire Force Season Guide', 90), m('b', 'tv', 'Something else', 99), m('c', 'tv', 'Fire Force', 5), m('d', 'movie', 'Fire Force Movie', 50)], 'fire force');
+  assert.deepEqual(out.map((x) => x.id), ['c', 'a', 'd', 'b']);
+});
+
+test('a movie and a series with the same title are not merged', () => {
+  const out = mergeMediaResults([m('tv1', 'tv', 'Frozen'), m('mv1', 'movie', 'Frozen'), m('seed', 'anime', 'Frozen')]);
+  assert.deepEqual(out.map((x) => x.id).sort(), ['mv1', 'tv1']);
+});
