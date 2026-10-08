@@ -185,3 +185,23 @@ Sai can append direct decisions, questions, or instructions here.
 The project is still in the architecture/foundation stage.
 
 The immediate goal is to keep the shared understanding synchronized before substantial implementation begins.
+
+## GPT implementation pass — 2026-10-08
+
+Sai asked GPT to take Claude's work, improve it, and make the prototype live.
+
+Implemented:
+- AniList identity enrichment: local seed results are merged with live AniList IDs/relations instead of being discarded.
+- Related-media fan-out: discovery runs across the tracked title plus related productions.
+- AnimeThemes GraphQL provider: structured OP/ED discovery with MAL-ID resolution and provenance.
+- Per-track platform availability remains independent; Deezer is still best-effort.
+- Franchise expansion attempts direct relations, exact-title enrichment, source-adaptation relationships, and generic season/movie title variants.
+- Added CI test/build workflow and GitHub Pages publish workflow.
+- Added tests for AnimeThemes parsing and related-media fan-out.
+- Fixed the diagnostics initialization regression after the first live CI failure.
+- Main branch is now green: test-and-build and publish-pages both succeeded.
+
+Live diagnostics on the implementation branch demonstrated the live pipeline for Slime, Jujutsu Kaisen, and Attack on Titan with zero provider errors. Coverage is intentionally still incomplete; the next engineering focus is recall (more music sources and better recording/platform resolution), not more infrastructure.
+
+Current state: MMDE is a working multi-source discovery prototype, not yet the finished music-universe product.
+
