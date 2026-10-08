@@ -191,7 +191,6 @@ async function selectPage(id) {
       el('h3', {}, 'Phase 1 · Media found'),
       el('p', { class: 'note' }, 'This is only the media-resolution phase. MMDE has identified the title; music discovery has not started yet.'),
       el('div', { class: 'meta' }, `Source IDs: ${Object.entries(media.externalIds || {}).map(([k,v]) => `${k}:${v}`).join(' · ') || 'none'}`),
-      ),
       el('button', { class: 'btn', type: 'button', onclick: () => { location.hash = `#/media/${encodeURIComponent(media.id)}`; } }, 'Phase 2 · Discover music')
     )
   );
