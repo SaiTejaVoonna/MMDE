@@ -47,8 +47,8 @@ export interface AppDeps extends Deps {
   /** Anime opening/ending songs per season (AnimeThemes). Optional. */
   animeThemes?: (title: string, alts: string[], firstYear?: number) => Promise<AnimeThemesEntry[]>;
   musicBrainz?: (title: string, alts: string[], composers: string[]) => Promise<MbRelease[]>;
-  wikidata?: (title: string, year?: number) => Promise<string[]>;
-  wikidataComposers?: (title: string, year?: number) => Promise<string[]>;
+  wikidata?: (title: string, year?: number, alts?: string[]) => Promise<string[]>;
+  wikidataComposers?: (title: string, year?: number, alts?: string[]) => Promise<string[]>;
   deezerIsrc?: (id: string) => Promise<string | null>;
 }
 

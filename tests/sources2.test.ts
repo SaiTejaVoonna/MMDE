@@ -95,3 +95,16 @@ test('buildMergedSoundtrack: when TMDB has no composer, the Wikidata composer is
   const fast = await buildMergedSoundtrack(base, 'Baahubali 2', 2017, { fast: true });
   assert.deepEqual(fast.composers, []); assert.equal(fast.composerSource, undefined, 'fast mode does not call Wikidata');
 });
+
+test('wikidataTitleSource: tries the accent-free spelling and the alternative titles when the first spelling finds nothing', async () => {
+  const searched: string[] = [];
+  const f = (async (u: string) => {
+    const p = new URL(String(u)).searchParams;
+    if (p.get('action') === 'wbsearchentities') { searched.push(String(p.get('search'))); return resp({ search: String(p.get('search')) === 'Baahubali 2' ? [{ id: 'Q9', description: '2017 film by S. S. Rajamouli' }] : [] }); }
+    if (p.get('ids') === 'Q9') return resp({ entities: { Q9: { labels: {}, claims: { P86: [{ mainsnak: { datavalue: { value: { id: 'Q3' } } } }] } } } });
+    return resp({ entities: { Q3: { labels: { en: { value: 'M. M. Keeravani' } } } } });
+  }) as unknown as typeof fetch;
+  const out = await wikidataTitleSource('MMDE-test', f).composers('Bāhubali 2', 2017, []);
+  assert.deepEqual(out, ['M. M. Keeravani']);
+  assert.ok(searched[0] === 'Bāhubali 2' && searched.includes('Baahubali 2'), 'original first, then the doubled-vowel form');
+});
