@@ -23,7 +23,8 @@ export interface RecordingResolver {
 /** Resolves a search string to a canonical media entity. */
 export interface MediaResolver {
   readonly name: string;
-  search(query: string): Promise<Media[]>;
+  /** `deep` asks for a longer list (the "view all results" page). Resolvers may ignore it. */
+  search(query: string, opts?: { deep?: boolean }): Promise<Media[]>;
 }
 
 /** Minimal polite rate limiter: at most one call per `intervalMs`. */

@@ -98,3 +98,18 @@ button.pcard:hover{border-color:#35425d;background:rgba(255,255,255,.03)}
 .pcard small{color:var(--mute)}
 .noposter{display:grid;place-items:center;color:var(--mute);font-size:28px}
 @media(max-width:640px){.dhero{flex-direction:column}.dposter{width:140px}}
+
+/* search suggestions + results page */
+.suggest .srow{display:flex;gap:12px;align-items:center}
+.srow img,.sthumb{width:40px;height:60px;flex:0 0 auto;border-radius:6px;object-fit:cover;background:#1c2638}
+.sall{display:block;width:100%;text-align:left;background:#0f1726;border:0;border-top:1px solid #27344b;color:var(--accent);padding:13px 18px;cursor:pointer;font-weight:600}
+.sall:hover{background:#172238}
+.fchips{margin:10px 0 18px;justify-content:flex-start}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#07101f}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.rcard{display:flex;gap:14px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px;color:var(--text);cursor:pointer}
+.rcard:hover{border-color:#3a4a6b;background:var(--panel2)}
+.rcard img,.rcard .noposter{width:92px;aspect-ratio:2/3;flex:0 0 auto;border-radius:8px;object-fit:cover;background:#1c2638}
+.rtext{display:flex;flex-direction:column;gap:4px;min-width:0}
+.rtext small{color:var(--mute)}
+.rover{color:#aab6ca;font-size:13px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}

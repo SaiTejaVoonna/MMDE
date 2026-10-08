@@ -32,8 +32,8 @@
   };
   // Phase 1 is the fast path: ask only TMDB (+ local seeds). If the server has no TMDB credential it falls back to all sources.
   const langName = (c) => { try { return c ? new Intl.DisplayNames(['en'], { type: 'language' }).of(c) : ''; } catch (e) { return ''; } };
-  const search = async (q) => {
-    const data = await call('/api/search?q=' + encodeURIComponent(q) + '&sources=tmdb,local-seeds');
+  const search = async (q, deep) => {
+    const data = await call('/api/search?q=' + encodeURIComponent(q) + '&sources=tmdb,local-seeds' + (deep ? '&deep=1' : ''));
     return { items: data.results || [], tmdbDown: (data.errors || []).some((e) => /^tmdb/i.test(String(e))) };
   };
   const IMG = 'https://image.tmdb.org/t/p/';
@@ -51,7 +51,7 @@
   const musicCard = () => el('div', { class: 'card' }, el('h3', {}, 'Music'), el('p', { class: 'note' }, 'Soundtrack and song discovery for this title is the next step. Nothing is hosted or streamed here: it will link out to Spotify, Apple Music and YouTube.'));
   const showDetails = async (media) => {
     window.scrollTo(0, 0);
-    const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); renderSearch(); } }, '← Back to search');
+    const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); backFn(); } }, '← Back');
     if (!/^tmdb-(tv|movie|collection)-\d+$/.test(media.id)) {
       app.replaceChildren(back,
         el('div', { class: 'card' }, el('h2', {}, media.title), chips([media.type, media.year])),
@@ -92,51 +92,95 @@
     parts.push(musicCard());
     app.replaceChildren(...parts);
   };
-  const renderSearch = () => {
-    const input = el('input', { class: 'search', type: 'search', placeholder: 'Search a movie, anime or TV show...', autocomplete: 'off', 'aria-label': 'Search media' });
-    const status = el('div', { class: 'note search-status' });
-    const loading = el('div', { class: 'search-loading', hidden: true },
-      el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })),
-      el('span', { class: 'loading-label' }, 'Searching MMDE...')
-    );
-    const results = el('div', { class: 'suggest', style: 'max-height:70vh;overflow-y:auto' });
+  let backFn = () => renderSearch('');
+  let resultsCache = { q: '', r: null }; // tabs and Back reuse the last full search instead of asking TMDB again
+  const TYPE_LABEL = { movie: 'Movie', tv: 'TV', collection: 'Collection', anime: 'Sample' };
+  const metaLine = (m) => [TYPE_LABEL[m.type] || m.type, m.year, langName(m.originalLanguage)].filter(Boolean).join(' · ');
+  const TMDB_WARN = 'TMDB could not be reached just now (network). Showing limited results - press Enter to search again.';
+
+  // One search box used on the home page and the results page: live suggestions while typing, Enter = all results.
+  const searchBox = (value, onAll, onPick) => {
+    const input = el('input', { class: 'search', type: 'search', placeholder: 'Search a movie, TV show, anime or franchise...', autocomplete: 'off', 'aria-label': 'Search media', value });
+    const box = el('div', { class: 'suggest', hidden: true, style: 'max-height:70vh;overflow-y:auto' });
+    const wrap = el('div', { class: 'searchwrap' }, input, box);
+    let seq = 0; let timer;
+    const close = () => { seq++; box.hidden = true; box.replaceChildren(); };
+    const note = (t) => el('div', { class: 'note', style: 'padding:12px 18px;margin:0' }, t);
+    const suggest = async () => {
+      const q = input.value.trim(); const my = ++seq;
+      if (q.length < 2) { box.hidden = true; box.replaceChildren(); return; }
+      box.hidden = false; box.replaceChildren(note('Searching...'));
+      try {
+        const { items, tmdbDown } = await search(q);
+        if (my !== seq) return;
+        box.replaceChildren();
+        if (tmdbDown) box.append(note(TMDB_WARN));
+        if (!items.length) { box.append(note(tmdbDown ? '' : 'No quick matches. Press Enter to search everything.')); return; }
+        items.slice(0, 8).forEach((m) => box.append(el('button', { type: 'button', class: 'srow', onclick: () => { close(); onPick(m, input.value.trim()); } },
+          m.posterPath ? el('img', { src: IMG + 'w92' + m.posterPath, alt: '', width: 40, height: 60, loading: 'lazy' }) : el('span', { class: 'sthumb' }),
+          el('span', {}, m.title, el('small', {}, metaLine(m))))));
+        box.append(el('button', { type: 'button', class: 'sall', onclick: () => { close(); onAll(q); } }, 'View all results for "' + q + '" →'));
+      } catch (e) { if (my === seq) box.replaceChildren(note(e.message)); }
+    };
+    input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(suggest, 350); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); clearTimeout(timer); const q = input.value.trim(); close(); if (q.length >= 2) onAll(q); }
+      if (e.key === 'Escape') close();
+    });
+    document.addEventListener('click', (e) => { if (document.contains(wrap) && !wrap.contains(e.target)) close(); });
+    return { wrap, input };
+  };
+
+  const showResults = async (q, filter) => {
+    filter = filter || 'all';
+    window.scrollTo(0, 0);
+    const sb = searchBox(q, (x) => showResults(x, 'all'), (m, typed) => { backFn = () => showResults(q, filter); showDetails(m); });
+    const home = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); renderSearch(''); } }, '← Home');
+    const body = el('div', {});
+    app.replaceChildren(home, el('div', { style: 'margin:14px 0 6px' }, sb.wrap), body);
+    let r = resultsCache.q === q ? resultsCache.r : null;
+    if (!r) {
+      body.append(el('div', { class: 'search-loading' }, el('div', { class: 'loading-line' }, el('span', { class: 'loading-fill' })), el('span', { class: 'loading-label' }, 'Searching everything...')));
+      try { r = await search(q, true); } catch (e) { body.replaceChildren(el('div', { class: 'card warn' }, e.message)); return; }
+      if (!r.tmdbDown) resultsCache = { q, r };
+    }
+    const items = r.items;
+    const count = (t) => items.filter((m) => m.type === t).length;
+    const tabs = [['all', 'All', items.length], ['movie', 'Movies', count('movie')], ['tv', 'TV shows', count('tv')], ['collection', 'Collections', count('collection')]].filter((t) => t[0] === 'all' || t[2] > 0);
+    const shown = filter === 'all' ? items : items.filter((m) => m.type === filter);
+    body.replaceChildren(...[
+      el('h2', { style: 'margin:8px 0' }, 'Results for "' + q + '"'),
+      r.tmdbDown ? el('div', { class: 'note' }, TMDB_WARN) : null,
+      el('div', { class: 'chips fchips' }, tabs.map((t) => el('button', { type: 'button', class: 'chip' + (t[0] === filter ? ' active' : ''), onclick: () => showResults(q, t[0]) }, t[1] + ' ' + t[2]))),
+      shown.length
+        ? el('div', { class: 'rgrid' }, shown.map((m) => el('button', { type: 'button', class: 'rcard', onclick: () => { backFn = () => showResults(q, filter); showDetails(m); } },
+            poster(m.posterPath, 'w185'),
+            el('span', { class: 'rtext' }, el('strong', {}, m.title), el('small', {}, metaLine(m)), m.overview ? el('span', { class: 'rover' }, m.overview) : null))))
+        : el('p', { class: 'note' }, 'Nothing found. Try fewer words, or add a language or year, like "kalki hindi 2024".')].filter(Boolean));
+  };
+
+  const renderSearch = (initial) => {
+    window.scrollTo(0, 0);
+    const sb = searchBox(initial || '', (q) => showResults(q, 'all'), (m, typed) => { backFn = () => renderSearch(typed); showDetails(m); });
     const backend = el('div', { class: 'note backend-status', id: 'backend-status' }, configProblem || 'Checking backend...');
     if (!configProblem) {
       call('/api/health').then((h) => {
         backend.textContent = 'Backend: online (' + backendName + ')' + (h.tmdb ? '' : ' - TMDB is not configured on the server, so title search is limited and seasons are unavailable');
       }).catch((e) => { backend.textContent = e.message; });
     }
-    const run = async () => {
-      const q = input.value.trim();
-      if (q.length < 2) return;
-      loading.hidden = false; status.textContent = ''; results.replaceChildren();
-      try {
-        const { items, tmdbDown } = await search(q);
-        loading.hidden = true;
-        const warn = 'TMDB could not be reached just now (network). Showing limited results - press Enter to search again.';
-        if (!items.length) { status.textContent = tmdbDown ? warn : 'No matches found.'; return; }
-        if (tmdbDown) { status.textContent = warn; results.append(el('div', { class: 'note', style: 'padding:8px 14px' }, warn)); }
-        results.append(...items.map(m => el('button', { type: 'button', style: 'display:flex;gap:12px;align-items:center', onclick: () => showDetails(m) },
-          m.posterPath ? el('img', { src: 'https://image.tmdb.org/t/p/w92' + m.posterPath, alt: '', width: 40, height: 60, loading: 'lazy', style: 'border-radius:6px;flex:0 0 auto;object-fit:cover' }) : null,
-          el('span', {}, m.title, el('small', {}, m.type + (m.year ? ' · ' + m.year : '') + (langName(m.originalLanguage) ? ' · ' + langName(m.originalLanguage) : '')))
-        )));
-      } catch (e) {
-        loading.hidden = true; status.textContent = e.message;
-      }
-    };
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
     app.replaceChildren(
       el('section', { class: 'hero' },
         el('h1', {}, 'Know the Title.', el('br'), el('em', {}, 'Discover the Music.')),
-        el('p', {}, 'Search a title. MMDE identifies it first, then lets you choose a season before music discovery.'),
-        el('div', { class: 'searchwrap' }, input, results),
-        loading, status, backend,
+        el('p', {}, 'Search any movie, TV show, anime or franchise. Pick it, then pick a film or season, then discover its music.'),
+        sb.wrap,
+        backend,
         el('div', { class: 'note try-label' }, 'Try searching'),
-        el('div', { class: 'chips' }, ['That Time I Got Reincarnated as a Slime','Jujutsu Kaisen','Attack on Titan','Naruto'].map(t => el('button', { class: 'chip', type: 'button', onclick: () => { input.value = t; run(); } }, t))),
+        el('div', { class: 'chips' }, ['That Time I Got Reincarnated as a Slime', 'Star Wars', 'Bahubali', 'Jujutsu Kaisen', 'Attack on Titan'].map((t) => el('button', { class: 'chip', type: 'button', onclick: () => showResults(t, 'all') }, t))),
         el('div', { class: 'note mode-note' }, 'TMDB credentials stay on the MMDE server and are never stored in this page.')
       )
     );
-    input.focus();
+    sb.input.focus();
+    if (initial) sb.input.setSelectionRange(initial.length, initial.length);
   };
-  renderSearch();
+  renderSearch('');
 })();

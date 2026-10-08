@@ -143,6 +143,42 @@ function mapCollection(c: { id: number; name?: string; poster_path?: string | nu
   };
 }
 
+// Words that commonly appear in titles, used only to rescue joined-up queries ("starwars" -> "star wars").
+const TITLE_WORDS = new Set(`a an the of and in on at to for my me you your we our it is as by or no not
+star stars wars war trek man men woman spider bat super iron captain america avengers endgame infinity harry potter lord rings hobbit game games thrones
+breaking bad stranger things money heist dark knight rises jurassic park world fast furious mission impossible john wick toy story lion king frozen fire force
+attack titan hero academia one piece dragon ball death note demon slayer jujutsu kaisen that time got reincarnated slime
+love night day black white red blue green gold silver dead life blood secret last first second third house girl boy little big great new old high school city
+dr doctor strange thor hulk ant wasp guardians galaxy black panther wonder deadpool wolverine venom joker batman superman flash aqua mad max matrix terminator alien
+aliens predator rocky rambo die hard pirates caribbean fantastic four planet apes kong godzilla transformers pacific rim top gun avatar way water titanic gladiator
+inception interstellar tenet dunkirk oppenheimer barbie wicked moana coco up cars incredibles monsters inc nemo finding dory shrek madagascar ice age kung fu panda
+home alone back future lethal weapon bourne mummy scream saw halloween nightmare elm street friday thirteenth conjuring insidious paranormal activity purge
+squid season family guy simpsons office friends big bang theory walking zombie house cards crown mandalorian witcher boys umbrella academy peaky blinders
+naruto bleach hunter x fullmetal alchemist brotherhood cowboy bebop evangelion neon genesis sword art online tokyo ghoul mob psycho saitama punch spy fairy tail
+black clover chainsaw vinland saga steins gate code geass re zero overlord konosuba tensura reborn kingdom haikyuu kuroko basket blue lock fire eater`.split(/\s+/).filter(Boolean));
+
+// "starwars" -> "star wars"; undefined when it cannot be split into known words (one unknown 4+ letter piece is allowed).
+export function segmentQuery(query: string): string | undefined {
+  const q = query.trim().toLowerCase();
+  if (q.length < 6 || q.length > 40 || !/^\p{L}+$/u.test(q)) return undefined;
+  type Cut = { words: string[]; unknown: number };
+  const best: Array<Cut | undefined> = new Array(q.length + 1).fill(undefined);
+  best[0] = { words: [], unknown: 0 };
+  for (let i = 1; i <= q.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const prev = best[j]; if (!prev) continue;
+      const w = q.slice(j, i);
+      const known = TITLE_WORDS.has(w);
+      if (!known && (w.length < 4 || prev.unknown >= 1)) continue;
+      const cand: Cut = { words: [...prev.words, w], unknown: prev.unknown + (known ? 0 : 1) };
+      const cur = best[i];
+      if (!cur || cand.unknown < cur.unknown || (cand.unknown === cur.unknown && cand.words.length < cur.words.length)) best[i] = cand;
+    }
+  }
+  const out = best[q.length];
+  return out && out.words.length >= 2 ? out.words.join(' ') : undefined;
+}
+
 export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): MediaResolver {
   const fetchKind = async (kind: 'tv' | 'movie', text: string, page: number, year?: number): Promise<Media[]> => {
     const yearParam = year ? `&${kind === 'tv' ? 'first_air_date_year' : 'year'}=${year}` : '';
@@ -152,33 +188,40 @@ export function tmdbResolver(token: string, fetchImpl: typeof fetch = fetch): Me
     const data = (await res.json()) as { results?: TmdbResult[] };
     return (data.results ?? []).map((m) => mapResult(m, kind));
   };
-  const fetchCollections = async (text: string): Promise<Media[]> => {
+  const fetchCollections = async (text: string, limit: number): Promise<Media[]> => {
     const res = await fetchRetry(fetchImpl, `https://api.themoviedb.org/3/search/collection?query=${encodeURIComponent(text)}&include_adult=false&language=en-US&page=1`, { headers: authHeaders(token) });
     if (!res.ok) throw new Error(`HTTP ${res.status} from TMDB collection search`);
     const data = (await res.json()) as { results?: Array<{ id: number; name?: string; poster_path?: string | null; overview?: string }> };
-    return (data.results ?? []).slice(0, 3).map(mapCollection);
+    return (data.results ?? []).slice(0, limit).map(mapCollection);
   };
   return {
     name: 'tmdb',
-    async search(query: string): Promise<Media[]> {
+    async search(query: string, opts: { deep?: boolean } = {}): Promise<Media[]> {
       const p = parseQuery(query);
-      const jobs: Array<Promise<Media[]>> = [];
-      const rawJobs = [fetchKind('tv', query.trim(), 1), fetchKind('movie', query.trim(), 1), fetchCollections(p.hinted ? p.text : query.trim())];
+      const raw0 = query.trim();
+      const pages = opts.deep ? [1, 2] : [1];
+      const colLimit = opts.deep ? 8 : 3;
+      const seg = !p.hinted ? segmentQuery(raw0) : undefined;
+      const rawJobs: Array<Promise<Media[]>> = [
+        ...pages.flatMap((pg) => [fetchKind('tv', raw0, pg), fetchKind('movie', raw0, pg)]),
+        fetchCollections(p.hinted ? p.text : raw0, colLimit),
+      ];
       const hintedJobs: Array<Promise<Media[]>> = [];
       if (p.hinted) {
         for (const kind of p.type ? [p.type] : (['tv', 'movie'] as const)) {
-          for (const page of p.lang ? [1, 2] : [1]) hintedJobs.push(fetchKind(kind, p.text, page, p.year));
+          for (const page of p.lang || opts.deep ? [1, 2] : [1]) hintedJobs.push(fetchKind(kind, p.text, page, p.year));
         }
+      } else if (seg) {
+        hintedJobs.push(fetchKind('tv', seg, 1), fetchKind('movie', seg, 1), fetchCollections(seg, colLimit));
       }
-      jobs.push(...hintedJobs, ...rawJobs);
-      const settled = await Promise.allSettled(jobs);
+      const settled = await Promise.allSettled([...hintedJobs, ...rawJobs]);
       const ok = settled.filter((s): s is PromiseFulfilledResult<Media[]> => s.status === 'fulfilled');
       if (!ok.length) throw (settled[0] as PromiseRejectedResult).reason;
       const hinted = settled.slice(0, hintedJobs.length).flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
       const raw = settled.slice(hintedJobs.length).flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
       const seen = new Set<string>();
       const all = [...hinted, ...raw].filter((m) => !seen.has(m.id) && !!seen.add(m.id));
-      return rankByQuery(all, query, { alt: p.hinted ? p.text : undefined, lang: p.lang, anime: p.anime }).slice(0, 15);
+      return rankByQuery(all, query, { alt: p.hinted ? p.text : seg, lang: p.lang, anime: p.anime }).slice(0, opts.deep ? 40 : 15);
     },
   };
 }

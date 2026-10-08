@@ -77,10 +77,10 @@ export function createApp(deps: AppDeps): Server {
    * lookup, e.g. the fast TMDB phase; if none of the requested sources exist on this server (say TMDB has no
    * credential) all resolvers are used so search still answers.
    */
-  async function search(q: string, sources?: string[]) {
+  async function search(q: string, sources?: string[], deep = false) {
     const wanted = sources?.length ? deps.mediaResolvers.filter((r) => sources.includes(r.name)) : [];
     const used = wanted.length ? wanted : deps.mediaResolvers;
-    const settled = await Promise.allSettled(used.map((r) => r.search(q)));
+    const settled = await Promise.allSettled(used.map((r) => r.search(q, { deep })));
     const results: Media[] = [];
     const errors: string[] = [];
     settled.forEach((s, i) => {
@@ -137,7 +137,7 @@ export function createApp(deps: AppDeps): Server {
       }
 
       if (req.method === 'GET' && path === '/api/health') return send(res, 200, { ok: true, tmdb: !!deps.tmdbToken, cors: allowedOrigins.length > 0, resolvers: deps.mediaResolvers.map((r) => r.name), providers: deps.providers.map((p) => p.name) });
-      if (req.method === 'GET' && path === '/api/search') return send(res, 200, await search(url.searchParams.get('q') ?? '', (url.searchParams.get('sources') ?? '').split(',').map((x) => x.trim()).filter(Boolean)));
+      if (req.method === 'GET' && path === '/api/search') return send(res, 200, await search(url.searchParams.get('q') ?? '', (url.searchParams.get('sources') ?? '').split(',').map((x) => x.trim()).filter(Boolean), url.searchParams.get('deep') === '1'));
       if (req.method === 'GET' && path.startsWith('/api/seasons/')) {
         if (!deps.tmdbToken) return send(res, 503, { error: 'TMDB is not configured on this server' });
         const id = decodeURIComponent(path.slice('/api/seasons/'.length));

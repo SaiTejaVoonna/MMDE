@@ -140,3 +140,33 @@ test('tv details carry season posters and overviews; bad ids are rejected', asyn
   assert.equal(t.seasons?.length, 2); assert.equal(t.seasons?.[1]?.posterPath, '/s1.jpg');
   await assert.rejects(tmdbDetails('tmdb-tv-../x', 't', router({})), /invalid id/);
 });
+
+import { segmentQuery } from '../src/providers/tmdb.ts';
+
+test('segmentQuery splits joined titles but leaves unknown words alone', () => {
+  assert.equal(segmentQuery('starwars'), 'star wars');
+  assert.equal(segmentQuery('spiderman'), 'spider man');
+  assert.equal(segmentQuery('attackontitan'), 'attack on titan');
+  assert.equal(segmentQuery('jujutsukaisen'), 'jujutsu kaisen');
+  assert.equal(segmentQuery('bahubali'), undefined);
+  assert.equal(segmentQuery('naruto'), undefined, 'a single known word is not a split');
+  assert.equal(segmentQuery('star wars'), undefined, 'already spaced');
+});
+
+test('"starwars" also searches "star wars" and ranks the franchise first; deep returns more', async () => {
+  const seen: string[] = [];
+  const f = (async (u: string) => {
+    const url = new URL(String(u)); const q = url.searchParams.get('query');
+    seen.push(`${url.pathname.split('/').pop()}:${q}:${url.searchParams.get('page')}`);
+    if (q !== 'star wars') return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    const body = url.pathname.endsWith('collection') ? { results: [{ id: 10, name: 'Star Wars Collection' }] }
+      : url.pathname.endsWith('movie') ? { results: [{ id: 11, title: 'Star Wars', popularity: 90 }] } : { results: [] };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as unknown as typeof fetch;
+  const out = await tmdbResolver('t', f).search('starwars');
+  assert.deepEqual(out.map((x) => x.title), ['Star Wars', 'Star Wars Collection']);
+  assert.ok(seen.includes('movie:star wars:1'));
+  seen.length = 0;
+  await tmdbResolver('t', f).search('starwars', { deep: true });
+  assert.ok(seen.some((x) => x.endsWith(':2')), 'deep fetches page 2');
+});
