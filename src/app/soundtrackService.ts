@@ -16,9 +16,9 @@ export interface SoundtrackSources {
   /** Optional: official releases from MusicBrainz (label, barcode, date, language, ISRCs). */
   musicBrainz?: (title: string, alts: string[], composers: string[]) => Promise<MbRelease[]>;
   /** Optional: the title in other languages (Wikidata). Widens catalog searches only. */
-  wikidata?: (title: string, year?: number) => Promise<string[]>;
+  wikidata?: (title: string, year?: number, alts?: string[]) => Promise<string[]>;
   /** Optional: the composer(s) Wikidata lists for the film. Used only when TMDB lists none. */
-  wikidataComposers?: (title: string, year?: number) => Promise<string[]>;
+  wikidataComposers?: (title: string, year?: number, alts?: string[]) => Promise<string[]>;
   /** Max time to wait for any one album's track list. Slower ones are skipped and the result is flagged partial. */
   timeoutMs?: number;
 }
@@ -61,7 +61,7 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
   // When TMDB lists no composer, Wikidata's composer for the same film and year fills the gap.
   let wd: string[] = [];
   if (!ctx.fast && (src.wikidata || (!composers.length && src.wikidataComposers))) {
-    const [t, c] = await Promise.allSettled([src.wikidata ? withTimeout(src.wikidata(title, year), 8000) : Promise.resolve([] as string[]), !composers.length && src.wikidataComposers ? withTimeout(src.wikidataComposers(title, year), 8000) : Promise.resolve([] as string[])]);
+    const [t, c] = await Promise.allSettled([src.wikidata ? withTimeout(src.wikidata(title, year, ctx.alts ?? []), 8000) : Promise.resolve([] as string[]), !composers.length && src.wikidataComposers ? withTimeout(src.wikidataComposers(title, year, ctx.alts ?? []), 8000) : Promise.resolve([] as string[])]);
     if (t.status === 'fulfilled') wd = t.value;
     if (c.status === 'fulfilled' && c.value.length) { composers = c.value; composerSource = 'wikidata'; }
   }
