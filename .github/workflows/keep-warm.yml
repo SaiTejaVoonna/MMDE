@@ -1,0 +1,15 @@
+name: keep-warm
+# Free hosts put an idle server to sleep, and the first visitor then waits 30-50 s. This pings the public health URL every ~10 minutes.
+# It only runs once the repo variable MMDE_API_BASE_URL is set (the same one publish-pages uses) and only from the default branch.
+# Check your host's terms about keep-alive pings before leaving it on; disable it any time in the Actions tab.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    if: ${{ vars.MMDE_API_BASE_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the backend
+        run: curl -sS --max-time 90 "${{ vars.MMDE_API_BASE_URL }}/api/health" || true

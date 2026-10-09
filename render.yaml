@@ -1,0 +1,20 @@
+# Render Blueprint (https://render.com/docs/blueprint-spec): one free web service built from the Dockerfile.
+# Not deployed or verified by an AI: Sai creates the Render account and pastes the secrets in Render's dashboard.
+services:
+  - type: web
+    name: mmde-api
+    runtime: docker
+    plan: free
+    region: singapore          # closest to India among Render's regions (check the list in the dashboard)
+    branch: main
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: TMDB_READ_ACCESS_TOKEN
+        sync: false            # asked for in the Render dashboard; never committed
+      - key: MMDE_CONTACT
+        sync: false            # an email or repo URL for the MusicBrainz / AnimeThemes User-Agent
+      - key: MMDE_WEB_ORIGIN
+        value: https://saitejavoonna.github.io
+      - key: MMDE_TRUST_PROXY
+        value: "1"

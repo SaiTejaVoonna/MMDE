@@ -23,6 +23,20 @@ npm start          # open http://localhost:8787
 ```
 Needs Node 22.13 or newer (tested on a real v22.13.0 and on 22.22; the npm scripts add `--experimental-strip-types` automatically, which Node 22.18+ no longer needs). `npm run doctor` prints PASS / WARN / FAIL lines with what to do for each. The token never leaves your computer and is never printed. Hosting on Railway is only needed so the public GitHub Pages site can use TMDB too.
 
+## Render free (no card) as the first host, with `render.yaml`
+
+Chosen for a quick friend-test link; Railway (below) stays a good paid, always-on alternative. Render free sleeps after about 15 minutes idle and
+needs roughly 30-50 s to wake (third-party comparison pages; check Render's own pricing page). The optional `keep-warm` workflow pings
+`/api/health` every ~10 minutes once `MMDE_API_BASE_URL` is set; read Render's terms on keep-alive pings before relying on it.
+
+1. render.com > **New > Blueprint** > connect the GitHub repo `SaiTejaVoonna/MMDE` (branch `main`, or `claude/deploy-readiness` for a first test: edit `branch:` in `render.yaml`).
+2. Render reads `render.yaml`, asks for `TMDB_READ_ACCESS_TOKEN` and `MMDE_CONTACT`. Paste the token only there.
+3. When it is live, copy the `https://<name>.onrender.com` address, set it as the GitHub repo **Variable** `MMDE_API_BASE_URL`, then run **Actions > publish-pages**.
+4. Share `https://saitejavoonna.github.io/MMDE/`.
+
+How first loads are kept short: the page asks for a Wikipedia-only answer first (about a second), then Apple Music/Deezer, then everything; the server compresses
+answers (gzip), lets browsers reuse soundtrack answers for 2 minutes (`stale-while-revalidate` 30 minutes), and fetches Apple albums in one batched lookup because Apple allows only about 20 calls a minute.
+
 ## Rules this setup enforces
 - **No secret ever reaches the browser or git.** `TMDB_READ_ACCESS_TOKEN` exists only as a server environment variable. Tests assert the frontend files contain no token-like strings and that no API response or header contains the token.
 - **`web/config.js` is public.** It holds one setting, `apiBaseUrl` (a URL, not a secret).
