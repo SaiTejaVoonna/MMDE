@@ -1,4 +1,5 @@
 import { createRateLimiter } from './types.ts';
+import { uaHeaders } from './http.ts';
 
 // Soundtrack discovery straight from music catalogs, for films Wikipedia has no tracklist for:
 // Apple Music (public iTunes Search API) and Deezer (public API), no keys needed. Links point at the platform; nothing is hosted.
@@ -82,7 +83,8 @@ export function isFilmPlaylist(filmTitle: string, name: string, alts: string[] =
   return head.length >= 4 && /\d/.test(head) && looseFold(name).includes(head);
 }
 
-export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fetch) {
+export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fetch, opts: { /** Deezer sends no CORS headers, so a browser cannot call it. */ deezer?: boolean } = {}) {
+  const useDeezer = opts.deezer !== false;
   const appleWait = createRateLimiter(3000); // the iTunes Search API is reported to allow about 20 calls/min
   const deezerWait = createRateLimiter(300);
   const cache = new Map<string, { at: number; value: unknown }>();
@@ -95,12 +97,12 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
     return value;
   };
   const json = async (url: string) => {
-    const res = await fetchImpl(url, { headers: { Accept: 'application/json', 'User-Agent': userAgent } });
+    const res = await fetchImpl(url, { headers: uaHeaders(userAgent, { Accept: 'application/json' }) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as any;
   };
   const apple = async (url: string) => { await appleWait(); return json(url); };
-  const deezer = async (url: string) => { await deezerWait(); return json(url); };
+  const deezer = async (url: string) => { if (!useDeezer) throw new Error('Deezer is not available in this mode'); await deezerWait(); return json(url); };
 
   async function findAlbums(film: string, year?: number, extraNames: string[] = [], alts: string[] = []): Promise<CatalogAlbum[]> {
     return remember(`albums|${looseFold(film)}|${year ?? ''}|${extraNames.map(looseFold).join('+')}|${alts.map(looseFold).join('+')}`, async () => {

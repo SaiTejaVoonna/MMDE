@@ -15,13 +15,17 @@
   const API_BASE = rawBase.replace(/\/+$/, '');
   const baseValid = API_BASE === '' || /^https?:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[A-Za-z0-9._~\/-]*)?$/.test(API_BASE);
   const onStaticHost = /(^|\.)github\.io$/.test(location.hostname);
+  // "Browser mode" (beta, GitHub-only): no server. The page does the lookups itself through window.MMDE_STATIC (bundled in mmde-static.js).
+  const wantStatic = !!(window.MMDE_CONFIG && window.MMDE_CONFIG.mode === 'static') || (API_BASE === '' && onStaticHost);
+  const staticApi = wantStatic && window.MMDE_STATIC ? window.MMDE_STATIC.create({ getToken: () => (lib.prefs && lib.prefs.tmdbToken) || '' }) : null;
   const configProblem = !baseValid
     ? 'The backend URL in config.js is not a valid http(s) URL.'
-    : (onStaticHost && !API_BASE ? 'This page is hosted statically and no backend URL is configured (apiBaseUrl in config.js).' : '');
+    : (wantStatic && !staticApi ? 'The browser-only version could not load (mmde-static.js is missing). Reload the page.' : '');
   let backendName = 'this site';
   try { if (API_BASE && baseValid) backendName = new URL(API_BASE).host; } catch (e) { /* invalid; reported via configProblem */ }
   const call = async (path) => {
     if (configProblem) throw new Error(configProblem);
+    if (staticApi) { try { return await staticApi.call(path); } catch (e) { throw new Error((e && e.message) || 'Lookup failed'); } }
     let r;
     try { r = await fetch(API_BASE + path); }
     catch (e) { throw new Error('Cannot reach the MMDE backend (' + backendName + '). It may be offline, or it does not allow this website (CORS: MMDE_WEB_ORIGIN).'); }
@@ -37,9 +41,11 @@
     return { items: data.results || [], tmdbDown: (data.errors || []).some((e) => /^tmdb/i.test(String(e))) };
   };
   const IMG = 'https://image.tmdb.org/t/p/';
+  // TMDB gives a path under IMG; AniList and Wikipedia give a full https address.
+  const imgSrc = (path, size) => (/^https:\/\//.test(path) ? path : IMG + size + path);
   const poster = (path, size, cls) => path
-    ? el('img', { class: cls || 'poster', src: IMG + size + path, alt: '', loading: 'lazy' })
-    : el('div', { class: (cls || 'poster') + ' noposter' }, '?');
+    ? el('img', { class: cls || 'poster', src: imgSrc(path, size), alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' })
+    : el('div', { class: (cls || 'poster') + ' noposter' }, '♪');
   const mins = (n) => (n ? Math.floor(n / 60) + 'h ' + (n % 60) + 'm' : '');
   const chips = (list) => el('div', { class: 'meta' }, list.filter(Boolean).map((t) => el('span', { class: 'tag' }, t)));
   // Chronological timeline: a line with a year marker above each poster, oldest first.
@@ -431,7 +437,7 @@
       });
       stuff.push(el('div', { class: 'chips', style: 'margin-top:18px' },
         el('button', { type: 'button', class: 'chip', onclick: () => {
-          const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify(lib, null, 2)], { type: 'application/json' })), download: 'mmde-library.json' });
+          const a = el('a', { href: URL.createObjectURL(new Blob([JSON.stringify({ ...lib, prefs: { ...(lib.prefs || {}), tmdbToken: undefined } }, null, 2)], { type: 'application/json' })), download: 'mmde-library.json' });
           document.body.append(a); a.click(); a.remove();
         } }, 'Export backup'),
         el('label', { class: 'chip' }, 'Import backup', el('input', { type: 'file', accept: 'application/json', style: 'display:none', onchange: (e) => {
@@ -464,7 +470,7 @@
   const showDetails = async (media) => {
     window.scrollTo(0, 0); viewToken++;
     const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); backFn(); } }, '← Back');
-    if (!/^tmdb-(tv|movie|collection)-\d+$/.test(media.id)) {
+    if (!/^(tmdb-(tv|movie|collection)-\d+|al-\d+|wd-Q\d+)$/.test(media.id)) {
       app.replaceChildren(back,
         el('div', { class: 'card' }, el('h2', {}, media.title), chips([media.type, media.year])),
         el('div', { class: 'card' }, el('h3', {}, 'No details for this entry'), el('p', { class: 'note' }, 'This is a built-in sample entry. Go back and search again: when TMDB answers, the real result with posters, seasons and franchise films appears.')));
@@ -474,7 +480,7 @@
     let d;
     try { d = await call('/api/details/' + encodeURIComponent(media.id)); }
     catch (e) { app.replaceChildren(back, el('div', { class: 'card warn' }, 'Could not load details: ' + e.message + ' (press Back and try again)')); return; }
-    const hero = el('section', { class: 'dhero tint', style: d.backdropPath ? 'background-image:linear-gradient(90deg,rgba(8,11,20,.97) 25%,rgba(8,11,20,.72)),url(' + IMG + 'w780' + d.backdropPath + ')' : '' },
+    const hero = el('section', { class: 'dhero tint', style: d.backdropPath ? 'background-image:linear-gradient(90deg,rgba(8,11,20,.97) 25%,rgba(8,11,20,.72)),url(' + imgSrc(d.backdropPath, 'w780') + ')' : d.posterPath ? 'background-image:linear-gradient(90deg,rgba(8,11,20,.96) 30%,rgba(8,11,20,.78)),url(' + imgSrc(d.posterPath, 'w342') + ')' : '' },
       poster(d.posterPath, 'w342', 'dposter'),
       el('div', { class: 'dtext' },
         el('h2', {}, d.title),
@@ -521,7 +527,7 @@
 
   // One search box used on the home page and the results page: live suggestions while typing, Enter = all results.
   const searchBox = (value, onAll, onPick) => {
-    const input = el('input', { class: 'search', type: 'search', placeholder: 'Search a movie, TV show, anime or franchise...', autocomplete: 'off', 'aria-label': 'Search media', value });
+    const input = el('input', { class: 'search', type: 'search', placeholder: 'Search movies, shows, anime…', autocomplete: 'off', 'aria-label': 'Search media', value });
     const box = el('div', { class: 'suggest', hidden: true, style: 'max-height:70vh;overflow-y:auto' });
     const wrap = el('div', { class: 'searchwrap' }, input, box);
     let seq = 0; let timer;
@@ -538,7 +544,7 @@
         if (tmdbDown) box.append(note(TMDB_WARN));
         if (!items.length) { box.append(note(tmdbDown ? '' : 'No quick matches. Press Enter to search everything.')); return; }
         items.slice(0, 8).forEach((m) => box.append(el('button', { type: 'button', class: 'srow', onclick: () => { close(); onPick(m, input.value.trim()); } },
-          m.posterPath ? el('img', { src: IMG + 'w92' + m.posterPath, alt: '', width: 40, height: 60, loading: 'lazy' }) : el('span', { class: 'sthumb' }),
+          m.posterPath ? el('img', { src: imgSrc(m.posterPath, 'w92'), alt: '', width: 40, height: 60, loading: 'lazy' }) : el('span', { class: 'sthumb' }),
           el('span', {}, m.title, el('small', {}, metaLine(m))))));
         box.append(el('button', { type: 'button', class: 'sall', onclick: () => { close(); onAll(q); } }, 'View all results for "' + q + '" →'));
       } catch (e) { if (my === seq) box.replaceChildren(note(e.message)); }
@@ -593,13 +599,31 @@
     call('/api/trending?kind=' + kind).then((r) => { slot.replaceWith(homeRow(title, r.results || [], (m) => { backFn = () => renderSearch(''); showDetails(m); })); }).catch(() => slot.remove());
     return slot;
   };
+  // Optional: the visitor's OWN free TMDB token (never ours). Kept only in this browser, left out of the backup file, used only for calls to TMDB.
+  const tokenBox = () => {
+    const status = el('p', { class: 'note' }, (lib.prefs && lib.prefs.tmdbToken) ? 'A TMDB token is saved in this browser.' : 'No token saved. Search works without one.');
+    const input = el('input', { class: 'tq', type: 'password', autocomplete: 'off', placeholder: 'TMDB "API Read Access Token" (long, starts with eyJ)', 'aria-label': 'TMDB token' });
+    return el('details', { class: 'knowbox tokenbox' }, el('summary', {}, 'Better search (optional): use your own free TMDB token'),
+      el('p', { class: 'note' }, 'TMDB gives posters, seasons and better ranking for every movie and show. Get a free token at themoviedb.org > Settings > API (copy the long "API Read Access Token"). It stays in this browser only, is never sent to MMDE or put in your backup, and is only used to talk to TMDB.'),
+      input,
+      el('div', { class: 'chips', style: 'justify-content:flex-start' },
+        el('button', { type: 'button', class: 'chip', onclick: () => {
+          const v = input.value.trim();
+          if (v.length < 40 || /\s/.test(v)) { status.textContent = 'That does not look like the long "API Read Access Token". Copy the whole token.'; return; }
+          (lib.prefs || (lib.prefs = {})).tmdbToken = v; saveLibQuiet(); input.value = ''; status.textContent = 'Saved in this browser. Search again to use TMDB.'; renderSearch('');
+        } }, 'Save token'),
+        el('button', { type: 'button', class: 'chip', onclick: () => { if (lib.prefs) delete lib.prefs.tmdbToken; saveLibQuiet(); status.textContent = 'Token removed.'; renderSearch(''); } }, 'Remove token')),
+      status);
+  };
   const renderSearch = (initial) => {
     window.scrollTo(0, 0);
     const sb = searchBox(initial || '', (q) => showResults(q, 'all'), (m, typed) => { backFn = () => renderSearch(typed); showDetails(m); });
     const backend = el('div', { class: 'note backend-status', id: 'backend-status' }, configProblem || 'Checking backend...');
     if (!configProblem) {
       call('/api/health').then((h) => {
-        backend.textContent = 'Backend: online (' + backendName + ')' + (h.tmdb ? '' : ' - TMDB is not configured on the server, so title search is limited and seasons are unavailable');
+        backend.textContent = staticApi
+          ? 'Beta: runs in your browser, no server' + (h.tmdb ? ' · TMDB search is on' : ' · title search uses Wikidata and AniList (no movie posters). Add a free TMDB token below for full search.')
+          : 'Backend: online (' + backendName + ')' + (h.tmdb ? '' : ' - TMDB is not configured on the server, so title search is limited and seasons are unavailable');
       }).catch((e) => { backend.textContent = e.message; });
     }
     app.replaceChildren(
@@ -610,7 +634,8 @@
         backend,
         el('div', { class: 'note try-label' }, 'Try searching'),
         el('div', { class: 'chips' }, ['Bahubali', 'RRR', 'Fire Force', 'That Time I Got Reincarnated as a Slime', 'Jujutsu Kaisen', 'Star Wars'].map((t) => el('button', { class: 'chip', type: 'button', onclick: () => showResults(t, 'all') }, t))),
-        el('div', { class: 'note mode-note' }, 'TMDB credentials stay on the MMDE server and are never stored in this page.')
+        staticApi ? tokenBox() : null,
+        el('div', { class: 'note mode-note' }, staticApi ? 'Beta: every lookup goes straight from this page to Wikipedia, Wikidata, AniList, MusicBrainz, AnimeThemes and Apple Music. MMDE has no server and never sees what you search.' : 'TMDB credentials stay on the MMDE server and are never stored in this page.')
       ),
       homeRow('Your list', Object.values(lib.follows).sort((a, b) => b.at - a.at).slice(0, 14).map((f) => ({ id: f.id, type: f.kind, title: f.title, year: f.year, posterPath: f.posterPath })), (m) => { backFn = () => renderSearch(''); showDetails(m); }, 'Nothing followed yet. Open any title and press "+ Follow".'),
       homeRowLoader('Trending this week', 'all'),
@@ -619,6 +644,7 @@
     sb.input.focus();
     if (initial) sb.input.setSelectionRange(initial.length, initial.length);
   };
+  const protoBadge = document.querySelector('.badge-proto'); if (protoBadge && staticApi) protoBadge.textContent = 'beta';
   refreshNav();
   renderSearch('');
   // Home-screen app support: the service worker only keeps the page files (never /api) and only works on https or localhost.
