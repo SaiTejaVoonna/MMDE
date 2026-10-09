@@ -1,17 +1,22 @@
-import { catalogResolver } from '../src/providers/catalogAlbums.ts';
-import { buildMergedSoundtrack } from '../src/app/soundtrackService.ts';
-import { wikiSoundtrack } from '../src/providers/wikiSoundtrack.ts';
-const ua = 'MMDE-livecheck/0.1 (personal, non-commercial; https://github.com/SaiTejaVoonna/MMDE)';
-let lookups = 0; let searches = 0;
-const counting = async (u, i) => { const s = String(u); if (s.includes('itunes.apple.com/lookup')) { lookups++; console.log('  apple lookup:', s.slice(0, 140)); } else if (s.includes('itunes.apple.com/search')) searches++; return fetch(u, i); };
-const c = catalogResolver(ua, counting);
-const src = { wiki: (t, y, a) => wikiSoundtrack(ua).find(t, y, a), albums: c.findAlbums, albumTracks: c.tracks };
-for (const k of [{ title: 'Bāhubali 2: The Conclusion', year: 2017, composers: ['M. M. Keeravani'], alts: ['Baahubali 2: The Conclusion'] }, { title: 'Fire Force', year: 2019, composers: ['Kenichiro Suehiro'], alts: ['炎炎ノ消防隊'] }]) {
-  lookups = 0; searches = 0;
-  for (const stage of ['wiki', 'fast']) {
-    const t0 = Date.now();
-    const m = await buildMergedSoundtrack(src, k.title, k.year, { ...k, fast: stage === 'fast', wikiOnly: stage === 'wiki' });
-    console.log(`${k.title} [${stage}] ${((Date.now() - t0) / 1000).toFixed(1)}s songs=${m.counts.total} green=${m.counts.green} albums=${m.albums.length} appleSearches=${searches} appleLookups=${lookups}`);
-    console.log('  sections:', m.sections.map((s) => `${s.name.slice(0, 50)}(${s.tracks.length})`).join(' | ').slice(0, 400));
-  }
+// Which public APIs allow a browser page on GitHub Pages to call them directly (CORS)? We send the Pages origin and print the answer headers.
+const ORIGIN = 'https://saitejavoonna.github.io';
+const tests = [
+  ['TMDB (no token: 401 is expected, we only read headers)', 'https://api.themoviedb.org/3/search/movie?query=rrr'],
+  ['Wikipedia', 'https://en.wikipedia.org/w/api.php?action=query&format=json&titles=RRR_(film)&origin=*'],
+  ['Wikidata', 'https://www.wikidata.org/w/api.php?action=wbsearchentities&search=RRR&language=en&format=json&origin=*'],
+  ['MusicBrainz', 'https://musicbrainz.org/ws/2/release?query=release:%22RRR%22&fmt=json&limit=1'],
+  ['AnimeThemes', 'https://api.animethemes.moe/anime?q=fire%20force&page%5Bsize%5D=1'],
+  ['AniList (GET)', 'https://graphql.anilist.co'],
+  ['Jikan (MyAnimeList)', 'https://api.jikan.moe/v4/anime?q=fire%20force&limit=1'],
+  ['TVmaze', 'https://api.tvmaze.com/search/shows?q=fire%20force'],
+  ['Apple iTunes Search', 'https://itunes.apple.com/search?term=rrr&entity=album&limit=1'],
+  ['Deezer', 'https://api.deezer.com/search/album?q=rrr&limit=1'],
+  ['YouTube Data API (no key: 403 expected)', 'https://www.googleapis.com/youtube/v3/search?part=snippet&q=rrr'],
+];
+for (const [name, url] of tests) {
+  try {
+    const r = await fetch(url, { headers: { Origin: ORIGIN, 'User-Agent': 'MMDE-corscheck/0.1 (https://github.com/SaiTejaVoonna/MMDE)' } });
+    const o = await fetch(url, { method: 'OPTIONS', headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'GET' } }).catch(() => null);
+    console.log(`${name}: status ${r.status} | allow-origin=${r.headers.get('access-control-allow-origin') ?? 'NONE'} | preflight=${o ? o.status + ' ' + (o.headers.get('access-control-allow-origin') ?? 'NONE') : 'error'} | rate=${r.headers.get('x-ratelimit-limit') ?? r.headers.get('ratelimit-limit') ?? '-'}`);
+  } catch (e) { console.log(`${name}: ERROR ${String(e).slice(0, 80)}`); }
 }
