@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import type { Media } from '../domain/types.ts';
 import { normalizeTitle } from '../matching/normalize.ts';
 import { mergeMediaResults } from '../app/media.ts';
@@ -63,9 +64,18 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.ico': 'image/x-icon',
 };
 
-const send = (res: ServerResponse, code: number, body: unknown) => {
-  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-  res.end(JSON.stringify(body));
+// Compress anything over 1 KB when the browser accepts gzip (soundtrack answers are large and repetitive: this cuts load time on slow networks).
+const wantsGzip = (res: ServerResponse) => /\bgzip\b/i.test(String(res.req?.headers['accept-encoding'] ?? ''));
+const writeBody = (res: ServerResponse, code: number, headers: Record<string, string>, data: Buffer) => {
+  if (data.length > 1024 && wantsGzip(res)) {
+    const prev = res.getHeader('vary');
+    res.writeHead(code, { ...headers, 'content-encoding': 'gzip', vary: prev ? `${String(prev)}, Accept-Encoding` : 'Accept-Encoding' });
+    res.end(gzipSync(data));
+  } else res.writeHead(code, headers), res.end(data);
+};
+/** `cache` lets read-only answers be reused by the browser (and any CDN) for a while; the default stays no-store. */
+const send = (res: ServerResponse, code: number, body: unknown, cache = 'no-store') => {
+  writeBody(res, code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': cache }, Buffer.from(JSON.stringify(body)));
 };
 
 async function readJson(req: IncomingMessage, limit = 100_000): Promise<unknown> {
@@ -129,8 +139,10 @@ export function createApp(deps: AppDeps): Server {
     if (!full.startsWith(deps.webRoot + sep) && full !== deps.webRoot) return send(res, 403, { error: 'forbidden' });
     try {
       const data = await readFile(full);
-      res.writeHead(200, { 'content-type': MIME[extname(full)] ?? 'application/octet-stream' });
-      res.end(data);
+      const type = MIME[extname(full)] ?? 'application/octet-stream';
+      // "no-cache" = the browser re-checks before reuse, so a new deploy shows up without a hard refresh.
+      const headers = { 'content-type': type, 'cache-control': 'no-cache' };
+      if (/^(text\/|application\/(javascript|json))/.test(type)) writeBody(res, 200, headers, data); else { res.writeHead(200, headers); res.end(data); }
     } catch {
       send(res, 404, { error: 'not found' });
     }
@@ -242,14 +254,16 @@ export function createApp(deps: AppDeps): Server {
         const seasonRaw = url.searchParams.get('season'); const airRaw = url.searchParams.get('seasonYear');
         const season = seasonRaw && /^\d{1,2}$/.test(seasonRaw) && Number(seasonRaw) >= 1 ? { number: Number(seasonRaw), airYear: airRaw && /^\d{4}$/.test(airRaw) ? Number(airRaw) : undefined } : undefined;
         const anime = url.searchParams.get('anime') === '1';
-        const fast = url.searchParams.get('fast') === '1'; const fresh = url.searchParams.get('fresh') === '1';
-        const key = `${fast ? 'fast|' : ''}${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}|${season ? season.number + '@' + (season.airYear ?? '') : ''}|${anime ? 'anime' : ''}`;
+        const stageRaw = url.searchParams.get('stage'); const wikiOnly = stageRaw === 'wiki';
+        const fast = wikiOnly || url.searchParams.get('fast') === '1'; const fresh = url.searchParams.get('fresh') === '1';
+        const key = `${wikiOnly ? 'wiki|' : fast ? 'fast|' : ''}${title.toLowerCase()}|${year ?? ''}|${composers.join('+').toLowerCase()}|${alts.join('+').toLowerCase()}|${season ? season.number + '@' + (season.airYear ?? '') : ''}|${anime ? 'anime' : ''}`;
         const hit = fresh ? undefined : mergedCache.get(key);
-        if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value);
+        const reuse = fresh ? 'no-store' : 'public, max-age=120, stale-while-revalidate=1800';
+        if (hit && Date.now() - hit.at < 6 * 3600_000) return send(res, 200, hit.value, reuse);
         try {
-          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes, musicBrainz: deps.musicBrainz, wikidata: deps.wikidata, wikidataComposers: deps.wikidataComposers }, title, year, { composers, alts, season, anime, fast });
+          const value = await buildMergedSoundtrack({ wiki: deps.soundtrack, albums: deps.albums, albumTracks: deps.albumTracks, animeThemes: deps.animeThemes, musicBrainz: deps.musicBrainz, wikidata: deps.wikidata, wikidataComposers: deps.wikidataComposers }, title, year, { composers, alts, season, anime, fast, wikiOnly });
           if (!value.partial) { mergedCache.set(key, { at: Date.now(), value }); if (mergedCache.size > 300) mergedCache.delete(mergedCache.keys().next().value as string); }
-          return send(res, 200, value);
+          return send(res, 200, value, value.partial ? 'no-store' : reuse);
         } catch (e) { return send(res, 502, { error: `soundtrack lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/deezer-isrc') {

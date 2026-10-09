@@ -54,7 +54,8 @@ export function belongsToTitle(album: CatalogAlbum, tracks: CatalogTrack[], comp
   return { ok: false, reason: `artist "${album.artist || 'unknown'}" is not the film's composer (${composers.join(', ')}) and no songs match` };
 }
 
-export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[]; anime?: boolean; fast?: boolean; season?: { number: number; airYear?: number } } = {}): Promise<MergedSoundtrack> {
+export async function buildMergedSoundtrack(src: SoundtrackSources, title: string, year?: number, ctx: { composers?: string[]; alts?: string[]; anime?: boolean; fast?: boolean; /** Wikipedia only: the quickest first answer. Implies fast. */ wikiOnly?: boolean; season?: { number: number; airYear?: number } } = {}): Promise<MergedSoundtrack> {
+  if (ctx.wikiOnly) ctx = { ...ctx, fast: true };
   let composers = ctx.composers ?? [];
   let composerSource: 'tmdb' | 'wikidata' | undefined = composers.length ? 'tmdb' : undefined;
   // Other-language names from Wikidata join the TMDB ones (one extra slot: catalogs are searched with the first 3, and each search costs a rate-limited call).
@@ -67,14 +68,14 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
   }
   const base = ctx.alts ?? [];
   const alts = [...new Set([...base.slice(0, 2), ...wd.filter((x) => !base.includes(x)).slice(0, 1), ...base.slice(2), ...wd.slice(1)])].slice(0, 8);
-  const [w, a, at, mb] = await Promise.allSettled([src.wiki(title, year, alts), src.albums(title, year, undefined, alts), ctx.anime && !ctx.fast && src.animeThemes ? src.animeThemes(title, alts, year) : Promise.resolve([] as AnimeThemesEntry[]), src.musicBrainz && !ctx.fast ? src.musicBrainz(title, alts, composers) : Promise.resolve([] as MbRelease[])]);
+  const [w, a, at, mb] = await Promise.allSettled([src.wiki(title, year, alts), ctx.wikiOnly ? Promise.resolve([] as CatalogAlbum[]) : src.albums(title, year, undefined, alts), ctx.anime && !ctx.fast && src.animeThemes ? src.animeThemes(title, alts, year) : Promise.resolve([] as AnimeThemesEntry[]), src.musicBrainz && !ctx.fast ? src.musicBrainz(title, alts, composers) : Promise.resolve([] as MbRelease[])]);
   if (w.status === 'rejected' && a.status === 'rejected' && !(at.status === 'fulfilled' && at.value.length) && !(mb.status === 'fulfilled' && mb.value.length)) throw w.reason;
   let partial = w.status === 'rejected' || a.status === 'rejected';
   const wiki = w.status === 'fulfilled' ? w.value : null;
   let all = a.status === 'fulfilled' ? a.value : [];
   // Wikipedia names albums the film-title search misses (e.g. "Baahubali (Original Soundtrack) - Volume 1"): search those too.
   const extras = wiki ? extraAlbumNames(wiki.sections.map((x) => x.name)) : [];
-  if (extras.length) {
+  if (extras.length && !ctx.wikiOnly) {
     try { const more = await src.albums(title, year, extras, alts); const have = new Set(all.map((x) => `${x.platform}:${x.id}`)); all = [...all, ...more.filter((x) => !have.has(`${x.platform}:${x.id}`))]; }
     catch { partial = true; }
   }
@@ -101,7 +102,7 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
   const state = (r: PromiseSettledResult<unknown>, n: number, skippedFast = false): SourceStatus['state'] => (skippedFast ? 'pending' : r.status === 'rejected' ? 'failed' : n > 0 ? 'ok' : 'empty');
   const sources: SourceStatus[] = [
     { key: 'wikipedia', label: 'Wikipedia', state: state(w, wiki ? 1 : 0), detail: wiki ? wiki.page.title : w.status === 'rejected' ? 'could not be reached' : 'no tracklist page found' },
-    { key: 'catalog', label: 'Apple Music + Deezer', state: state(a, all.length), detail: a.status === 'rejected' ? 'could not be reached' : `${all.length} album${all.length === 1 ? '' : 's'}/playlist${skipped.length ? `, ${skipped.length} skipped (not this title)` : ''}` },
+    { key: 'catalog', label: 'Apple Music + Deezer', state: state(a, all.length, !!ctx.wikiOnly), detail: ctx.wikiOnly ? 'checking…' : a.status === 'rejected' ? 'could not be reached' : `${all.length} album${all.length === 1 ? '' : 's'}/playlist${skipped.length ? `, ${skipped.length} skipped (not this title)` : ''}` },
     { key: 'musicbrainz', label: 'MusicBrainz', state: state(mb, mbReleases.length, !!ctx.fast), detail: ctx.fast ? 'checking…' : mb.status === 'rejected' ? 'could not be reached' : mbReleases.length ? `${mbReleases.length} release${mbReleases.length === 1 ? '' : 's'} (label, date, ISRC)` : 'no release for this title' },
     ...(ctx.anime ? [{ key: 'animethemes' as const, label: 'AnimeThemes', state: state(at, animeThemes.length, !!ctx.fast), detail: ctx.fast ? 'checking…' : at.status === 'rejected' ? 'could not be reached' : animeThemes.length ? `${animeThemes.length} season entr${animeThemes.length === 1 ? 'y' : 'ies'}` : 'nothing found' }] : []),
     ...(src.wikidata ? [{ key: 'wikidata' as const, label: 'Wikidata names', state: ctx.fast ? 'pending' as const : wd.length ? 'ok' as const : 'empty' as const, detail: ctx.fast ? 'checking…' : wd.length ? `${wd.length} other-language title${wd.length === 1 ? '' : 's'}` : 'none found' }] : []),

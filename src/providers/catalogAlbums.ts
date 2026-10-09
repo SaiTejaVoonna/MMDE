@@ -174,17 +174,46 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
     });
   }
 
+  // Apple allows only ~20 calls a minute, so one lookup per album is the slowest part of a first load. Albums asked for within a short
+  // window are fetched together: the lookup API accepts several ids in one call.
+  const mapAppleTracks = (rows: any[]): CatalogTrack[] => rows.filter((r) => r.wrapperType === 'track' && r.trackViewUrl).map((r, i): CatalogTrack => ({
+    no: r.trackNumber ?? i + 1, title: String(r.trackName), artists: String(r.artistName ?? '').split(/\s*(?:,|&)\s*/).filter(Boolean),
+    lengthSec: r.trackTimeMillis ? Math.round(r.trackTimeMillis / 1000) : undefined, url: String(r.trackViewUrl), id: String(r.trackId),
+    art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined,
+  })).sort((a, b) => a.no - b.no);
+  const APPLE_BATCH = 8; const APPLE_LIMIT = 200;
+  type Waiter = { resolve: (v: CatalogTrack[]) => void; reject: (e: unknown) => void };
+  let pending = new Map<string, Waiter[]>(); let timer: ReturnType<typeof setTimeout> | undefined;
+  async function flushApple() {
+    const batch = pending; pending = new Map(); timer = undefined;
+    const ids = [...batch.keys()];
+    for (let i = 0; i < ids.length; i += APPLE_BATCH) {
+      const chunk = ids.slice(i, i + APPLE_BATCH);
+      const settle = (id: string, f: (w: Waiter) => void) => (batch.get(id) ?? []).forEach(f);
+      try {
+        const d = await apple(`https://itunes.apple.com/lookup?${new URLSearchParams({ id: chunk.join(','), entity: 'song', limit: String(APPLE_LIMIT) })}`);
+        const rows: any[] = d.results ?? [];
+        if (chunk.length > 1 && rows.length >= APPLE_LIMIT) {
+          // The answer may have been cut off: fall back to one call per album so no album silently loses songs.
+          for (const id of chunk) {
+            try { const one = await apple(`https://itunes.apple.com/lookup?${new URLSearchParams({ id, entity: 'song' })}`); const t = mapAppleTracks(one.results ?? []); settle(id, (w) => w.resolve(t)); }
+            catch (e) { settle(id, (w) => w.reject(e)); }
+          }
+          continue;
+        }
+        for (const id of chunk) settle(id, (w) => w.resolve(mapAppleTracks(rows.filter((r) => String(r.collectionId) === id))));
+      } catch (e) { for (const id of chunk) settle(id, (w) => w.reject(e)); }
+    }
+  }
+  const appleTracks = (id: string) => new Promise<CatalogTrack[]>((resolve, reject) => {
+    const list = pending.get(id) ?? []; list.push({ resolve, reject }); pending.set(id, list);
+    timer ??= setTimeout(() => { void flushApple(); }, 40);
+  });
+
   async function tracks(platform: CatalogPlatform, id: string): Promise<CatalogTrack[]> {
     if (!/^\d{1,15}$/.test(id)) throw new Error('invalid id');
     return remember(`tracks|${platform}|${id}`, async () => {
-      if (platform === 'apple') {
-        const d = await apple(`https://itunes.apple.com/lookup?${new URLSearchParams({ id, entity: 'song' })}`);
-        return (d.results ?? []).filter((r: any) => r.wrapperType === 'track' && r.trackViewUrl).map((r: any, i: number): CatalogTrack => ({
-          no: r.trackNumber ?? i + 1, title: String(r.trackName), artists: String(r.artistName ?? '').split(/\s*(?:,|&)\s*/).filter(Boolean),
-          lengthSec: r.trackTimeMillis ? Math.round(r.trackTimeMillis / 1000) : undefined, url: String(r.trackViewUrl), id: String(r.trackId),
-          art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined,
-        })).sort((a: CatalogTrack, b: CatalogTrack) => a.no - b.no);
-      }
+      if (platform === 'apple') return appleTracks(id);
       const path = platform === 'deezer' ? `album/${id}` : `playlist/${id}`;
       const d = await deezer(`https://api.deezer.com/${path}/tracks?limit=120`);
       return (d.data ?? []).filter((r: any) => r.link).map((r: any, i: number): CatalogTrack => ({

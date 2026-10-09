@@ -161,7 +161,7 @@ test('catalogResolver: finds soundtrack albums on Apple and Deezer, dedupes, lab
       { collectionId: 11, collectionName: 'Baahubali 2 - The Conclusion (Telugu) [Original Motion Picture Soundtrack]', artistName: 'M. M. Keeravani', trackCount: 8, collectionViewUrl: 'https://music.apple.com/in/album/x/11', artworkUrl100: 'https://a/100x100bb.jpg' },
       { collectionId: 12, collectionName: 'Unrelated Hits', artistName: 'X', trackCount: 10, collectionViewUrl: 'https://music.apple.com/in/album/y/12' },
     ] });
-    if (url.hostname === 'itunes.apple.com' && path === '/lookup') return body({ results: [{ wrapperType: 'collection' }, { wrapperType: 'track', trackNumber: 2, trackName: 'Sivuni Aana', artistName: 'Kaala Bhairava', trackTimeMillis: 240000, trackViewUrl: 'https://music.apple.com/in/album/x/11?i=22', trackId: 22 }, { wrapperType: 'track', trackNumber: 1, trackName: 'Saahore Baahubali', artistName: 'Daler Mehndi', trackTimeMillis: 300000, trackViewUrl: 'https://music.apple.com/in/album/x/11?i=21', trackId: 21 }] });
+    if (url.hostname === 'itunes.apple.com' && path === '/lookup') return body({ results: [{ wrapperType: 'collection' }, { wrapperType: 'track', collectionId: Number(url.searchParams.get('id')), trackNumber: 2, trackName: 'Sivuni Aana', artistName: 'Kaala Bhairava', trackTimeMillis: 240000, trackViewUrl: 'https://music.apple.com/in/album/x/11?i=22', trackId: 22 }, { wrapperType: 'track', collectionId: Number(url.searchParams.get('id')), trackNumber: 1, trackName: 'Saahore Baahubali', artistName: 'Daler Mehndi', trackTimeMillis: 300000, trackViewUrl: 'https://music.apple.com/in/album/x/11?i=21', trackId: 21 }] });
     if (path === '/search/album') return body({ data: [
       { id: 31, title: 'Baahubali 2 - The Conclusion (Telugu) [Original Motion Picture Soundtrack]', link: 'https://www.deezer.com/album/31', nb_tracks: 8, artist: { name: 'M. M. Keeravani' } },
       { id: 32, title: 'Baahubali 2 The Conclusion (Hindi)', link: 'https://www.deezer.com/album/32', nb_tracks: 7, artist: { name: 'M. M. Keeravani' } },
@@ -227,7 +227,7 @@ test('catalogResolver + service: albums named by Wikipedia ("... - Volume N") ar
         { collectionId: 299, collectionName: 'Baahubali (Hindi) Greatest Hits', artistName: 'X', trackCount: 9, collectionViewUrl: 'https://music.apple.com/a/299' } ] });
       return body({ results: [] });
     }
-    if (url.pathname === '/lookup') return body({ results: [{ wrapperType: 'collection' }, { wrapperType: 'track', trackNumber: 1, trackName: url.searchParams.get('id') === '200' ? 'Mahishmati Theme' : 'Palace Intrigue', artistName: 'M. M. Keeravani', trackViewUrl: 'https://music.apple.com/t/' + url.searchParams.get('id'), trackId: 1 }] });
+    if (url.pathname === '/lookup') return body({ results: String(url.searchParams.get('id')).split(',').flatMap((id) => [{ wrapperType: 'collection' }, { wrapperType: 'track', collectionId: Number(id), trackNumber: 1, trackName: id === '200' ? 'Mahishmati Theme' : 'Palace Intrigue', artistName: 'M. M. Keeravani', trackViewUrl: 'https://music.apple.com/t/' + id, trackId: 1 }]) });
     return body({ data: [] });
   }) as unknown as typeof fetch;
   const wikiSrc = { page: { title: 'Baahubali 2: The Conclusion (soundtrack)', url: 'https://en.wikipedia.org/wiki/x' }, pageKind: 'soundtrack' as const, license: 'CC BY-SA 4.0' as const, sections: [
@@ -271,4 +271,23 @@ test('belongsToTitle: the Japanese-named Fire Force album is kept even though it
   assert.equal(r.ok, true); assert.equal(r.byTitle, true);
   const other = { ...al, id: '2', name: 'Fire Force (Original Soundtrack)', artist: 'Someone Else' };
   assert.equal(belongsToTitle(other, [], ['Taku Iwasaki'], null, ['Fire Force', '炎炎ノ消防隊']).ok, false, 'short English name by an unrelated artist stays rejected');
+});
+
+test('catalogResolver: albums asked for together are fetched with ONE Apple lookup (rate-limited), results split per album, and a cut-off answer falls back to one call per album', async () => {
+  const calls: string[] = [];
+  const row = (cid: number, no: number) => ({ wrapperType: 'track', collectionId: cid, trackNumber: no, trackName: `Song ${cid}-${no}`, artistName: 'A', trackViewUrl: `https://music.apple.com/t/${cid}-${no}`, trackId: cid * 100 + no });
+  const f = (async (u: string) => {
+    const url = new URL(String(u)); calls.push(url.search);
+    const ids = String(url.searchParams.get('id')).split(',').map(Number);
+    if (ids.includes(900)) return new Response(JSON.stringify({ results: Array.from({ length: 200 }, (_, i) => row(900 + (i % 2), i + 1)) }), { status: 200 });
+    return new Response(JSON.stringify({ results: [{ wrapperType: 'collection' }, ...ids.flatMap((c) => [row(c, 2), row(c, 1)])] }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const c = catalogResolver('t', f);
+  const [a, b] = await Promise.all([c.tracks('apple', '11'), c.tracks('apple', '12')]);
+  assert.equal(calls.length, 1, 'one lookup for both albums'); assert.ok(calls[0]!.includes('id=11%2C12'));
+  assert.deepEqual(a.map((t) => t.title), ['Song 11-1', 'Song 11-2']); assert.deepEqual(b.map((t) => t.title), ['Song 12-1', 'Song 12-2']);
+  calls.length = 0;
+  const [x, y] = await Promise.all([c.tracks('apple', '900'), c.tracks('apple', '901')]);
+  assert.equal(calls.length, 3, 'batch call hit the 200 cap, so each album is fetched on its own');
+  assert.ok(x.length > 0 && y.length > 0);
 });
