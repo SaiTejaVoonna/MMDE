@@ -2,6 +2,7 @@ import type { PlatformLink } from '../domain/types.ts';
 import { buildLinks } from '../links/platforms.ts';
 import { normalizeArtist, normalizeTitle, sameArtist, similarity } from '../matching/normalize.ts';
 import { createRateLimiter } from './types.ts';
+import { uaHeaders } from './http.ts';
 
 export interface TrackQuery { title: string; artists: string[]; film: string; /** Song length and the film's year, when known: they tell the song from a same-named one by the same singer on another film. */ lengthSec?: number; year?: number }
 export interface TrackLinksResult {
@@ -38,12 +39,13 @@ export function acceptCandidate(q: TrackQuery, c: Candidate): boolean {
  * (no keys). YouTube and Spotify stay as search links: exact links need API keys. Results are cached for 24h.
  * MMDE only links out; it never hosts, downloads or streams anything.
  */
-export function trackLinkResolver(userAgent: string, fetchImpl: typeof fetch = fetch) {
+export function trackLinkResolver(userAgent: string, fetchImpl: typeof fetch = fetch, opts: { deezer?: boolean } = {}) {
+  const useDeezer = opts.deezer !== false;
   const appleWait = createRateLimiter(3000); // the iTunes Search API is reported to allow about 20 calls/min
   const deezerWait = createRateLimiter(300);
   const cache = new Map<string, { at: number; value: TrackLinksResult }>();
   const json = async (url: string) => {
-    const res = await fetchImpl(url, { headers: { Accept: 'application/json', 'User-Agent': userAgent } });
+    const res = await fetchImpl(url, { headers: uaHeaders(userAgent, { Accept: 'application/json' }) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as any;
   };
@@ -74,10 +76,10 @@ export function trackLinkResolver(userAgent: string, fetchImpl: typeof fetch = f
       const key = `${normalizeTitle(q.title)}|${normalizeArtist(q.artists[0] ?? '')}|${normalizeTitle(q.film)}|${q.lengthSec ?? ''}|${q.year ?? ''}`;
       const hit = cache.get(key);
       if (hit && Date.now() - hit.at < 86_400_000) return hit.value;
-      const [a, d] = await Promise.allSettled([apple(q), deezer(q)]);
+      const [a, d] = await Promise.allSettled([apple(q), useDeezer ? deezer(q) : Promise.resolve(undefined)]);
       const found = [a, d].flatMap((s) => (s.status === 'fulfilled' && s.value ? [s.value] : []));
       // If both services failed outright, do not cache: the caller may retry.
-      const bothFailed = a.status === 'rejected' && d.status === 'rejected';
+      const bothFailed = a.status === 'rejected' && (!useDeezer || d.status === 'rejected');
       // Search links should find the right song: put the film name in the YouTube/Spotify query.
       const base = buildLinks({ title: `${q.title} ${q.film}`, artists: [] });
       const exact: PlatformLink[] = found.map((c) => ({ platform: c.platform, url: c.url, kind: 'resolved', id: c.id }));

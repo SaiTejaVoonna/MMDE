@@ -1,4 +1,5 @@
 import { createRateLimiter } from './types.ts';
+import { uaHeaders } from './http.ts';
 
 // AnimeThemes (public API, no key): the original opening/ending songs of anime, one entry per season/cour, with artists.
 // We use it as a SOURCE OF SONGS and link back to the animethemes.moe page (their videos are theirs; MMDE never hosts or plays anything).
@@ -38,7 +39,7 @@ export function animeThemesSource(userAgent: string, fetchImpl: typeof fetch = f
       for (const term of [title, ...alts.filter((a) => /^[\p{Script=Latin}\d\s\p{P}]+$/u.test(a))].slice(0, 3)) {
         await wait();
         try {
-          const res = await fetchImpl('https://api.animethemes.moe/anime?' + new URLSearchParams({ q: term, include: 'animethemes.song.artists', 'page[size]': '12' }), { headers: { Accept: 'application/json', 'User-Agent': userAgent } });
+          const res = await fetchImpl('https://api.animethemes.moe/anime?' + new URLSearchParams({ q: term, include: 'animethemes.song.artists', 'page[size]': '12' }), { headers: uaHeaders(userAgent, { Accept: 'application/json' }) });
           if (!res.ok) throw new Error(`HTTP ${res.status} from AnimeThemes`);
           const data = (await res.json()) as { anime?: Array<any> };
           const results = (data.anime ?? []).map((a) => ({ name: String(a.name ?? ''), year: typeof a.year === 'number' ? a.year : undefined, a }));

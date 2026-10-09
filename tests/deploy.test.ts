@@ -186,7 +186,8 @@ test('frontend files: no credentials, no token storage, loads config.js first, u
   for (const [name, text] of sources) {
     assert.ok(!/eyJ[A-Za-z0-9_-]{20,}/.test(text), `${name}: JWT-like token`);
     assert.ok(!/\b[a-f0-9]{32}\b/.test(text), `${name}: 32-hex key-like string`);
-    assert.ok(!/Authorization|Bearer\s/i.test(text), `${name}: must not send credentials from the browser`);
+    // The in-browser backend (mmde-static.js) bundles the TMDB client, which sends the VISITOR'S OWN token (pasted in the browser, never ours) to TMDB only.
+    if (name !== 'mmde-static.js') assert.ok(!/Authorization|Bearer\s/i.test(text), `${name}: must not send credentials from the browser`);
     assert.ok(!/TMDB_READ_ACCESS_TOKEN\s*[:=]\s*['"]?\w{8,}/.test(text), `${name}: env value`);
   }
   const phase1 = readFileSync(join(dir, 'mmde-phase1.js'), 'utf8');
@@ -306,4 +307,15 @@ test('home-screen app files: manifest with icons, a service worker that never ca
   assert.match(sw, /u\.origin !== self\.location\.origin/, 'other websites are never intercepted');
   const html = web('index.html');
   assert.ok(html.includes('rel="manifest"') && html.includes('apple-touch-icon'));
+});
+
+test('browser-only mode: our TMDB credential cannot be in the bundle; the visitor token is only read from their own browser prefs and left out of the backup', () => {
+  const dir = join(root, 'web');
+  const bundle = readFileSync(join(dir, 'mmde-static.js'), 'utf8');
+  assert.ok(!/eyJ[A-Za-z0-9_-]{20,}/.test(bundle) && !/TMDB_READ_ACCESS_TOKEN/.test(bundle), 'no credential or env name in the bundle');
+  const phase1 = readFileSync(join(dir, 'mmde-phase1.js'), 'utf8');
+  assert.match(phase1, /getToken: \(\) => \(lib\.prefs && lib\.prefs\.tmdbToken\)/, 'the token only comes from the visitor\'s own saved prefs');
+  assert.match(phase1, /tmdbToken: undefined/, 'the token is excluded from the exported backup');
+  const html = readFileSync(join(dir, 'index.html'), 'utf8');
+  assert.ok(html.includes('mmde-static.js') && html.indexOf('mmde-static.js') < html.indexOf('mmde-phase1.js'), 'the browser backend loads before the app');
 });

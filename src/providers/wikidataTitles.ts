@@ -1,4 +1,5 @@
 import { createRateLimiter } from './types.ts';
+import { uaHeaders } from './http.ts';
 import { titleVariants } from './wikiSoundtrack.ts';
 
 // Wikidata (CC0, free, no key): the same film/series under its names in other languages (Japanese, Chinese, Korean, Telugu, Hindi, Tamil...).
@@ -10,7 +11,7 @@ export function wikidataTitleSource(userAgent: string, fetchImpl: typeof fetch =
   const wait = createRateLimiter(250);
   const get = async (params: Record<string, string>) => {
     await wait();
-    const res = await fetchImpl(`https://www.wikidata.org/w/api.php?${new URLSearchParams({ format: 'json', origin: '*', ...params })}`, { headers: { 'User-Agent': userAgent, Accept: 'application/json' } });
+    const res = await fetchImpl(`https://www.wikidata.org/w/api.php?${new URLSearchParams({ format: 'json', origin: '*', ...params })}`, { headers: uaHeaders(userAgent, { Accept: 'application/json' }) });
     if (!res.ok) throw new Error(`HTTP ${res.status} from Wikidata`);
     return (await res.json()) as any;
   };

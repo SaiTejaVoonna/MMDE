@@ -1,4 +1,5 @@
 import { normalizeTitle } from '../matching/normalize.ts';
+import { uaHeaders } from './http.ts';
 
 // Reads a film/series soundtrack tracklist from Wikipedia (CC BY-SA 4.0: always credit and link the page).
 // Facts only (track names, credited singers, lengths). No AI involved: the tracklist tables are structured HTML.
@@ -103,7 +104,7 @@ const wikiUrl = (title: string) => `https://en.wikipedia.org/wiki/${encodeURICom
 
 export function wikiSoundtrack(userAgent: string, fetchImpl: typeof fetch = fetch) {
   const get = async (params: Record<string, string>) => {
-    const res = await fetchImpl(`${API}?${new URLSearchParams({ format: 'json', formatversion: '2', ...params })}`, { headers: { 'User-Agent': userAgent, Accept: 'application/json', 'Api-User-Agent': userAgent } });
+    const res = await fetchImpl(`${API}?${new URLSearchParams({ format: 'json', formatversion: '2', ...(userAgent ? {} : { origin: '*' }), ...params })}`, { headers: uaHeaders(userAgent, { Accept: 'application/json', ...(userAgent ? { 'Api-User-Agent': userAgent } : {}) }) });
     if (!res.ok) throw new Error(`HTTP ${res.status} from Wikipedia`);
     return (await res.json()) as any;
   };

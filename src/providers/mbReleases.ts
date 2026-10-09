@@ -1,4 +1,5 @@
 import { createRateLimiter } from './types.ts';
+import { uaHeaders } from './http.ts';
 import { artistMatches, isFilmAlbum, looseFold, nameMatchesDistinctiveTitle } from './catalogAlbums.ts';
 import { sortNameToName } from './musicbrainz.ts';
 
@@ -77,7 +78,7 @@ export function mbReleaseSource(userAgent: string, fetchImpl: typeof fetch = fet
   const get = async (url: string): Promise<any> => {
     for (let attempt = 0; ; attempt++) {
       await wait();
-      const res = await fetchImpl(url, { headers: { 'User-Agent': userAgent, Accept: 'application/json' } });
+      const res = await fetchImpl(url, { headers: uaHeaders(userAgent, { Accept: 'application/json' }) });
       if (res.status === 503 && attempt < 2) { await new Promise((r) => setTimeout(r, backoff * (attempt + 1))); continue; }
       if (!res.ok) throw new Error(`HTTP ${res.status} from MusicBrainz`);
       return res.json();

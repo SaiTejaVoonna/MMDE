@@ -258,3 +258,4 @@ button.tlitem:hover .tlgo{text-decoration:underline}
 /* Landing: let the trending rows start above the fold */
 .hero{min-height:0;padding:84px 0 40px}
 @media (max-width:640px){.hero{padding:56px 0 28px}}
+@media (max-width:640px){.brand small{display:none}.navbtn{padding:6px 12px;font-size:13px}.search{font-size:15px}}
