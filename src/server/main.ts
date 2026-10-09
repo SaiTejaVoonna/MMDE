@@ -1,3 +1,4 @@
+import { networkInterfaces } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { aniListResolver } from '../providers/anilist.ts';
@@ -79,6 +80,9 @@ createApp({
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),
 }).listen(port, () => {
   console.log(`MMDE prototype on http://localhost:${port}  (${offline ? 'OFFLINE: local seeds only' : 'live providers enabled'})`);
+  // Same Wi-Fi: a phone can open the laptop's address. Printed so nobody has to hunt for it with ipconfig.
+  const lan = Object.values(networkInterfaces()).flat().filter((n) => n && n.family === 'IPv4' && !n.internal).map((n) => `http://${n!.address}:${port}`);
+  if (lan.length) console.log(`On your phone (same Wi-Fi): ${lan.join('   or   ')}`);
   console.log(`seeds: ${seeds.map((s) => s.media.title).join(', ') || 'none'}`);
   // Booleans only: never print secret values.
   console.log(`TMDB configured: ${tmdbToken ? 'yes' : 'NO (set TMDB_READ_ACCESS_TOKEN; /api/seasons will return 503)'}`);

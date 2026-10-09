@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
@@ -294,4 +294,16 @@ test('/api/trending: kind switch, cached, 503 without TMDB, 502 on failure', asy
   } finally { await s.close(); }
   const none = await boot({ tmdbToken: undefined });
   try { assert.equal((await get(`${none.base}/api/trending`)).status, 503); } finally { await none.close(); }
+});
+
+test('home-screen app files: manifest with icons, a service worker that never caches /api, and the page links them', async () => {
+  const web = (f: string) => readFileSync(fileURLToPath(new URL(`../web/${f}`, import.meta.url)), 'utf8');
+  const manifest = JSON.parse(web('manifest.webmanifest'));
+  assert.equal(manifest.display, 'standalone'); assert.equal(manifest.start_url, './');
+  for (const icon of manifest.icons) assert.ok(statSync(fileURLToPath(new URL(`../web/${icon.src}`, import.meta.url))).size > 100, icon.src);
+  const sw = web('sw.js');
+  assert.match(sw, /includes\('\/api\/'\)\) return/, 'API answers are never intercepted or cached');
+  assert.match(sw, /u\.origin !== self\.location\.origin/, 'other websites are never intercepted');
+  const html = web('index.html');
+  assert.ok(html.includes('rel="manifest"') && html.includes('apple-touch-icon'));
 });
