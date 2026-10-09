@@ -37,6 +37,12 @@ needs roughly 30-50 s to wake (third-party comparison pages; check Render's own 
 How first loads are kept short: the page asks for a Wikipedia-only answer first (about a second), then Apple Music/Deezer, then everything; the server compresses
 answers (gzip), lets browsers reuse soundtrack answers for 2 minutes (`stale-while-revalidate` 30 minutes), and fetches Apple albums in one batched lookup because Apple allows only about 20 calls a minute.
 
+## Use it on your phone
+
+- **Same Wi-Fi, today, no install:** start MMDE on the laptop; the black window prints `On your phone (same Wi-Fi): http://192.168.x.x:8787`. Open that address in the phone's browser. The first time, Windows may ask to allow the app through the firewall: choose **Private networks**. It works only while the laptop is on and on the same Wi-Fi (guest or "client isolation" Wi-Fi blocks it). Anyone on that Wi-Fi can open it, so use it at home, not on public Wi-Fi. Your TMDB token is never sent to the phone.
+- **As an app icon:** once the page is on https (GitHub Pages) the browser can install it: Android Chrome menu > **Install app** / **Add to Home screen**; iPhone Safari Share > **Add to Home Screen**. The service worker (`web/sw.js`) keeps only the page files, never `/api`. Over plain `http://192.168...` Chrome offers only a shortcut, not a full install.
+- A native phone app (APK / App Store) is not built; it would be a wrapper around this same page.
+
 ## Rules this setup enforces
 - **No secret ever reaches the browser or git.** `TMDB_READ_ACCESS_TOKEN` exists only as a server environment variable. Tests assert the frontend files contain no token-like strings and that no API response or header contains the token.
 - **`web/config.js` is public.** It holds one setting, `apiBaseUrl` (a URL, not a secret).

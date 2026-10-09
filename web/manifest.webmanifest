@@ -1,0 +1,15 @@
+{
+  "name": "MMDE - Media Music Discovery Engine",
+  "short_name": "MMDE",
+  "description": "Know the title, discover its music. Links out only; never plays or hosts audio.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#080b14",
+  "theme_color": "#0b0f1a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

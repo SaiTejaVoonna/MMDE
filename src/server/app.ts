@@ -62,6 +62,7 @@ interface Job { id: string; mediaId: string; state: 'running' | 'done' | 'error'
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.json': 'application/json; charset=utf-8', '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json; charset=utf-8', '.png': 'image/png',
 };
 
 // Compress anything over 1 KB when the browser accepts gzip (soundtrack answers are large and repetitive: this cuts load time on slow networks).
@@ -142,7 +143,7 @@ export function createApp(deps: AppDeps): Server {
       const type = MIME[extname(full)] ?? 'application/octet-stream';
       // "no-cache" = the browser re-checks before reuse, so a new deploy shows up without a hard refresh.
       const headers = { 'content-type': type, 'cache-control': 'no-cache' };
-      if (/^(text\/|application\/(javascript|json))/.test(type)) writeBody(res, 200, headers, data); else { res.writeHead(200, headers); res.end(data); }
+      if (/^(text\/|application\/(javascript|json|manifest\+json)|image\/svg)/.test(type)) writeBody(res, 200, headers, data); else { res.writeHead(200, headers); res.end(data); }
     } catch {
       send(res, 404, { error: 'not found' });
     }
