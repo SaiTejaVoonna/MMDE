@@ -108,3 +108,23 @@ test('wikidataTitleSource: tries the accent-free spelling and the alternative ti
   assert.deepEqual(out, ['M. M. Keeravani']);
   assert.ok(searched[0] === 'Bāhubali 2' && searched.includes('Baahubali 2'), 'original first, then the doubled-vowel form');
 });
+
+test('server speed-ups: wiki-only stage never touches the catalogs; answers are gzipped and cacheable; fresh=1 is not', async () => {
+  let albumCalls = 0;
+  const wiki = { page: { title: 'T (soundtrack)', url: 'u' }, pageKind: 'soundtrack' as const, license: 'CC BY-SA 4.0' as const, sections: [{ name: 'Songs', tracks: Array.from({ length: 80 }, (_, i) => ({ no: i + 1, title: `Song number ${i + 1} with a long title`, artists: ['Some Artist'], lyricists: [], lengthSec: 200 })) }] };
+  const server = createApp({ providers: [], mediaResolvers: [], linkResolvers: [], store: jsonStore(), webRoot: fileURLToPath(new URL('../web', import.meta.url)), soundtrack: async () => wiki, albums: async () => { albumCalls++; return []; }, albumTracks: async () => [] } as never);
+  await new Promise<void>((r) => server.listen(0, r));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const q = `${base}/api/soundtrack-merged?title=Test%20Title&year=2020`;
+    const w = await fetch(`${q}&stage=wiki`, { headers: { 'accept-encoding': 'gzip' } });
+    assert.equal(w.headers.get('content-encoding'), 'gzip', 'big JSON is gzipped'); assert.match(w.headers.get('cache-control') ?? '', /max-age=120/);
+    const body = (await w.json()) as any;
+    assert.equal(body.counts.total, 80); assert.equal(albumCalls, 0, 'wiki stage skips Apple/Deezer');
+    assert.equal(body.sources.find((s: any) => s.key === 'catalog').state, 'pending');
+    const full = await fetch(q); assert.equal(albumCalls, 1); assert.equal((await full.json() as any).sources.find((s: any) => s.key === 'catalog').state, 'empty');
+    const plain = await fetch(q, { headers: { 'accept-encoding': 'identity' } }); assert.equal(plain.headers.get('content-encoding'), null);
+    const fresh = await fetch(`${q}&fresh=1`); assert.equal(fresh.headers.get('cache-control'), 'no-store');
+    const html = await fetch(`${base}/`, { headers: { 'accept-encoding': 'gzip' } }); assert.equal(html.headers.get('cache-control'), 'no-cache');
+  } finally { await new Promise<void>((r) => server.close(() => r())); }
+});
