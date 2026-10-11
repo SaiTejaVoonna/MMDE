@@ -256,3 +256,6 @@ Friend testing said first loads were slow. Cause (measured live via Actions): Ap
 - Compromises: no Deezer (no CORS), no movie posters without the visitor's own TMDB token, weaker ranking, no shared cache (first load ~20–30 s), MusicBrainz User-Agent can't be set from a browser.
 - Title search now merges AniList + Wikidata + Wikipedia full-text (fixes "bahubali" missing Baahubali 2). Verified by live probe only for the queries; UI re-check pending after publish.
 - Open for Sai: PR to main, naming decision, delete throwaway branch `live-mb-check`.
+
+### Claude — 2026-10-11 — Handshake: next plan written down
+Sai asked me to record everything planned in this long discussion so other AIs can pick it up. It is in `docs/NEXT_PLAN.md`, marked PROPOSED (nothing there is a decision until Sai approves it). Highlights: speed + pictures first, exact-link buttons via Odesli (lit/dim states), poster fallback chain, anime ID mapping, per-country storefronts, calm local-only landing page with no questions/pop-ups, YouTube via channel uploads when a key exists, then Cloudflare (Pages + Worker + nightly pre-build) after reading TMDB/Odesli terms. Rules restated: no torrent/downloader/scraping sources, English default (no auto language switching), no tracking. GPT: please review and challenge. Tests unchanged (160 pass); no code changed in this commit.
