@@ -10,7 +10,7 @@ import { mergeSoundtrack, type AlbumWithTracks, type MergedSoundtrack, type Sour
 export interface SoundtrackSources {
   wiki: (title: string, year?: number, alts?: string[]) => Promise<Soundtrack | null>;
   albums: (title: string, year?: number, extraNames?: string[], alts?: string[]) => Promise<CatalogAlbum[]>;
-  albumTracks: (platform: CatalogPlatform, id: string) => Promise<CatalogTrack[]>;
+  albumTracks: (platform: CatalogPlatform, id: string, country?: string) => Promise<CatalogTrack[]>;
   /** Optional: the anime's opening/ending songs per season (AnimeThemes). Only called when the title is anime. */
   animeThemes?: (title: string, alts: string[], firstYear?: number) => Promise<AnimeThemesEntry[]>;
   /** Optional: official releases from MusicBrainz (label, barcode, date, language, ISRCs). */
@@ -83,7 +83,7 @@ export async function buildMergedSoundtrack(src: SoundtrackSources, title: strin
   let preExcluded = 0;
   if (ctx.season) { const before = all.length; all = all.filter((x) => classifyForSeason(x.name, x.releaseDate, ctx.season!.number, ctx.season!.airYear) !== 'excluded'); preExcluded = before - all.length; }
   const pick = [...all.filter((x) => x.kind === 'album' && !x.viaWiki).slice(0, MAX_ALBUMS), ...all.filter((x) => x.kind === 'album' && x.viaWiki).slice(0, MAX_WIKI_ALBUMS), ...all.filter((x) => x.kind === 'playlist').slice(0, MAX_PLAYLISTS)];
-  const results = await Promise.allSettled(pick.map((album) => withTimeout(src.albumTracks(album.platform, album.id), src.timeoutMs ?? 60_000).then((tracks): AlbumWithTracks => ({ album, tracks }))));
+  const results = await Promise.allSettled(pick.map((album) => withTimeout(src.albumTracks(album.platform, album.id, album.country), src.timeoutMs ?? 60_000).then((tracks): AlbumWithTracks => ({ album, tracks }))));
   const fetched: AlbumWithTracks[] = [];
   const skipped: MergedSoundtrack['skipped'] = [];
   let titleVerified = false;

@@ -217,3 +217,38 @@ test('every outgoing call carries our User-Agent (the Workers runtime sends none
   assert.ok(seen.some((s) => s.host === 'www.wikidata.org') && seen.some((s) => s.host === 'en.wikipedia.org'));
   for (const s of seen) assert.equal(s.ua, 'MMDE/test (contact@example.com)', `${s.host} must get our User-Agent`);
 });
+
+// ---- Apple storefront fallback ----
+import { catalogResolver } from '../src/providers/catalogAlbums.ts';
+const ogAlbum = { collectionId: 111, collectionName: 'They Call Him OG (Original Background Score)', artistName: 'Thaman S', artworkUrl100: 'https://is1.example/100x100bb.jpg', collectionViewUrl: 'https://music.apple.com/in/album/x/111', trackCount: 40, releaseDate: '2025-11-16T00:00:00Z' };
+const appleFake = (inStore: boolean, log: string[]) => (async (u: string | URL) => {
+  const url = new URL(String(u)); log.push(url.host + url.pathname + '?' + url.searchParams.toString());
+  if (url.host === 'itunes.apple.com' && url.pathname === '/search') return json({ results: url.searchParams.get('country') === 'in' && inStore ? [ogAlbum] : [] });
+  if (url.host === 'itunes.apple.com' && url.pathname === '/lookup') return json({ results: url.searchParams.get('country') === 'in' ? [{ wrapperType: 'track', collectionId: 111, trackNumber: 1, trackName: 'Firestorm', artistName: 'Thaman S', trackViewUrl: 'https://music.apple.com/in/song/1', trackId: 1, trackTimeMillis: 180000 }] : [] });
+  return json({ data: [], results: [] });
+}) as typeof fetch;
+
+test('Apple store fallback: a title missing from the default store is found in the India store, and its songs are fetched from that same store', async () => {
+  const log: string[] = [];
+  const c = catalogResolver('test', appleFake(true, log), { deezer: false });
+  const albums = await c.findAlbums('They Call Him OG', 2025);
+  const og = albums.find((a) => a.platform === 'apple');
+  assert.equal(og?.country, 'in');
+  const tracks = await c.tracks('apple', og!.id, og!.country);
+  assert.equal(tracks.length, 1);
+  assert.ok(log.some((l) => l.startsWith('itunes.apple.com/lookup') && l.includes('country=in')), 'the lookup must use the same store');
+  await assert.rejects(c.tracks('apple', '111', 'USA'), /invalid store/);
+});
+
+test('Apple store fallback costs nothing when the default store already has the album, and gives up quietly when no store does', async () => {
+  const log: string[] = [];
+  const hit = catalogResolver('test', (async (u: string | URL) => {
+    const url = new URL(String(u)); log.push(url.search);
+    return json(url.host === 'itunes.apple.com' ? { results: [ogAlbum] } : { data: [], results: [] });
+  }) as typeof fetch, { deezer: false });
+  const a = await hit.findAlbums('They Call Him OG', 2025);
+  assert.equal(a[0]?.country, undefined, 'default store: no country recorded');
+  assert.ok(!log.some((l) => l.includes('country=')), 'no extra store searched');
+  const none = catalogResolver('test', appleFake(false, []), { deezer: false });
+  assert.deepEqual((await none.findAlbums('Nothing Here Film', 2020)).filter((x) => x.platform === 'apple'), []);
+});

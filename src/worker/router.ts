@@ -153,7 +153,9 @@ export function createEdgeRouter(opts: EdgeOptions) {
     if (p === '/api/album-tracks') {
       const platform = q.get('platform') ?? ''; const id = q.get('id') ?? '';
       if (!['apple', 'deezer', 'deezer-playlist'].includes(platform) || !/^\d{1,15}$/.test(id)) throw bad('invalid platform or id');
-      return { status: 200, cache: 'long', body: { tracks: await catalog.tracks(platform as CatalogPlatform, id) } };
+      const store = q.get('country') ?? undefined;
+      if (store !== undefined && !/^[a-z]{2}$/.test(store)) throw bad('invalid store');
+      return { status: 200, cache: 'long', body: { tracks: await catalog.tracks(platform as CatalogPlatform, id, store) } };
     }
 
     if (p === '/api/deezer-isrc') {
