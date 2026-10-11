@@ -41,7 +41,7 @@ for (const t of titles.slice(0, limit)) {
   if (pick) {
     const d = await get(`/api/details/${encodeURIComponent(pick.id)}`);
     const det = d.body ?? {};
-    row.details = { status: d.status, ms: d.ms, composers: det.composers ?? [], alts: (det.altTitles ?? []).length, year: det.year };
+    row.details = { status: d.status, ms: d.ms, title: det.title, composers: det.composers ?? [], alts: (det.altTitles ?? []).length, year: det.year };
     const title = det.title ?? pick.title; const year = det.year ?? pick.year ?? t.year;
     const extra = { composer: (det.composers ?? []).join('|'), alt: (det.altTitles ?? []).join('|'), anime: t.anime || (det.genres ?? []).includes('Animation') };
     const w = await get(`/api/soundtrack-merged?${q({ title, year, stage: 'wiki', ...extra })}`);
@@ -66,7 +66,7 @@ for (const t of titles.slice(0, limit)) {
   console.log(`\n== ${t.query}  [${t.kind}]`);
   console.log(`   search ${row.search.status} ${row.search.ms}ms, ${row.search.results} results, top: ${row.search.top.join(' | ') || '-'}${row.search.errors.length ? '  ERRORS: ' + row.search.errors.join('; ') : ''}`);
   if (!row.found) { console.log('   expected title NOT found in results'); continue; }
-  console.log(`   poster: ${row.hasPoster ? 'yes' : 'no'}   composers: ${row.details.composers.join(', ') || '-'}   alt titles: ${row.details.alts}`);
+  console.log(`   details title: "${row.details.title}"   poster: ${row.hasPoster ? 'yes' : 'no'}   composers: ${row.details.composers.join(', ') || '-'}   alt titles: ${row.details.alts}`);
   console.log(`   wiki stage ${row.wikiStage.ms}ms -> ${row.wikiStage.songs} songs`);
   console.log(`   full ${f.ms}ms HTTP ${f.status}: ${f.songs} songs (green ${f.green} / amber ${f.amber} / red ${f.red}), exact Apple link ${pct(f.withAppleLink, f.songs)}, Deezer ${pct(f.withDeezerLink, f.songs)}, ISRC proof ${pct(f.withProof, f.songs)}, albums ${f.albums}, verified: ${f.verified}, composer from: ${f.composerSource ?? '-'}, partial: ${f.partial}`);
   console.log(`   sources: ${f.sources.join(' ') || '-'}   languages: ${f.languages.join(' ') || '-'}${f.error ? '   ERROR: ' + f.error : ''}`);

@@ -95,3 +95,22 @@ test('static API with a visitor TMDB token: search goes to TMDB first and falls 
   assert.ok(r.errors.some((e: string) => /^tmdb/.test(e)) && r.results.length > 0, 'falls back to Wikidata results and says TMDB failed');
   assert.ok(!seen.filter((s) => !s.startsWith('api.themoviedb.org')).some((s) => s.includes('[auth]')), 'token never sent anywhere else');
 });
+
+test('Wikidata-only title: a label shorter than the Wikipedia article name ("OG") yields the full name as the title, so albums can match it', async () => {
+  const fakeWd = (async (u: string | URL) => {
+    const url = new URL(String(u));
+    if (url.host === 'www.wikidata.org') return json({ entities: { Q500: { labels: { en: { value: 'OG' } }, descriptions: { en: { value: '2025 Indian Telugu-language film' } }, sitelinks: { enwiki: { title: 'They Call Him OG' } }, claims: { P577: [{ mainsnak: { datavalue: { value: { time: '+2025-09-25T00:00:00Z' } } } }] } } } });
+    return json({ query: { pages: [{ title: 'They Call Him OG', extract: 'A film.' }] } });
+  }) as typeof fetch;
+  const d = await keylessTitles(fakeWd).details('wd-Q500', {});
+  assert.equal(d.title, 'They Call Him OG');
+  assert.ok(!d.altTitles.includes('OG'), 'a 2-letter label is not useful as an alternate title');
+  // A disambiguated article title is cleaned too, and a longer label is kept as an alternate.
+  const fake2 = (async (u: string | URL) => {
+    const url = new URL(String(u));
+    if (url.host === 'www.wikidata.org') return json({ entities: { Q501: { labels: { en: { value: 'Kingdom' } }, descriptions: { en: { value: '2025 Indian film' } }, sitelinks: { enwiki: { title: 'Kingdom (2025 film)' } }, claims: {} } } });
+    return json({ query: { pages: [{ title: 'Kingdom (2025 film)' }] } });
+  }) as typeof fetch;
+  const k = await keylessTitles(fake2).details('wd-Q501', {});
+  assert.equal(k.title, 'Kingdom', 'same name once the qualifier is removed: keep the label');
+});
