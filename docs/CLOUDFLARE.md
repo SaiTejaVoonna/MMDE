@@ -96,3 +96,30 @@ sources that failed, artwork source and timings. It measures only; it never deci
 ## Roll back
 Worker: `npx wrangler rollback` (or dashboard > Workers > mmde-api > Deployments). Pages: dashboard > the project > Deployments > choose an earlier one > Rollback. Delete the secret: `npx wrangler secret delete TMDB_READ_ACCESS_TOKEN`.
 If a token is ever exposed: regenerate it at themoviedb.org/settings/api, then `wrangler secret put` again.
+
+## Measured results (2026-10-11)
+Run on GitHub's servers: the real Worker code under the real Workers runtime (`wrangler dev --local`, workerd) with a simulated KV cache, **no TMDB token**, real public services, 10 real titles (`scripts/golden.mjs`, list in `data/golden/titles.json`). This is NOT a Cloudflare deployment: the outgoing addresses are GitHub's, not Cloudflare's.
+
+| Title | Songs | Green | Exact Apple link | Notes |
+|---|---|---|---|---|
+| Baahubali 2: The Conclusion | 76 | 71 | 89% | MusicBrainz ok; 14 albums; 4 languages |
+| Slime (S1) | 176 | 119 | 43% | Deezer links 95% |
+| Kalki 2898 AD | 34 | 34 | 100% | |
+| They Call Him OG | 52 | 49 | 94% | was **0 songs** before the title fix (below) |
+| Crash Landing on You (K-drama) | 32 | 28 | 91% | |
+| Your Name. | 39 | 29 | 72% | |
+| Pushpa 2: The Rule | 71 | 18 | 66% | |
+| Jawan | 20 | 9 | 50% | |
+| Fire Force | 98 | 0 | 53% | green 0 only because MusicBrainz failed in that run (122 songs / 29 green when it answered) |
+| RRR | 103 | 1 | 39% | was 63 songs / 0 albums before the repeated-letter fix; Apple songs still do not merge with the Wikipedia list (transliteration), so almost all stay amber |
+
+All 10 titles found by keyless search and all met their (low) song floors. Totals (run with every fix except the RRR one): 661 songs, 54% green, 59% with an exact Apple link. First-stage (Wikipedia) answers: 0.3-1.8 s. Full stage: 12-31 s (Apple's 3 s spacing). Artwork: found for 10/10 (AniList 3, TVmaze 1, soundtrack album cover 6, so most Indian films get an album cover, not a poster, without a TMDB token). Worker cache: `miss` then `hit` confirmed inside workerd; refused origin 403.
+
+What the live runs found and fixed:
+1. **Wikimedia returned 403 to the Worker** (the Workers runtime sends no User-Agent). Fix: every outgoing call gets our User-Agent.
+2. **My rate limit was too tight** (search and artwork counted as heavy). Now only soundtrack, albums and album tracks are heavy.
+3. **They Call Him OG: 0 songs.** Wikidata's label is "OG"; albums are matched by title and a 2-letter title matches nothing. Fix: use the English Wikipedia article name ("They Call Him OG") when it contains the label. Apple's default store already has all OG albums (probed), so the extra India/Japan store fallback (added first, kept) was not the cause; it is only a safety net.
+4. **RRR found no albums**: the fold that tolerates "Bāhubali ~ Baahubali" collapses repeated letters, so "RRR" became "r". Fix: repeated-letter titles compare as whole words.
+5. **MusicBrainz "could not be reached" on 8 of 10 titles** in the second and third runs. Probe: it answers 200 for our User-Agent, returns 503 `x-ratelimit-who: search-shed` (its search endpoint is shedding load) and 403 `ua-missing` with no User-Agent. Retries on 503 now go up to 3 with growing waits. A MusicBrainz failure marks the answer `partial` and drops the ISRC proof (0% in these runs). Not solved: it depends on MusicBrainz load; check again from Cloudflare.
+
+Still open: TMDB path untested from the Worker (no token); Cloudflare egress throttling by Apple/MusicBrainz unmeasured; RRR-style language versions do not merge with Wikipedia's list; Deezer links are 0% for several Indian titles (Deezer's catalog or our match); "green 54%" is the engine's own rule, not an independent accuracy number.
