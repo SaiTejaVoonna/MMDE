@@ -154,14 +154,18 @@ export function keylessTitles(fetchImpl: typeof fetch = fetch) {
     const ent = (await wd({ action: 'wbgetentities', ids: qid, props: 'labels|descriptions|claims|sitelinks', sitefilter: 'enwiki', languages: 'en' })).entities?.[qid];
     if (!ent) throw new Error('title not found on Wikidata');
     const claims = ent.claims ?? {};
-    const title = String(ent.labels?.en?.value ?? qid);
+    const label = String(ent.labels?.en?.value ?? qid);
+    const wikiTitle = ent.sitelinks?.enwiki?.title as string | undefined;
+    // Wikidata's label can be shorter than the name everyone (and every music catalog) uses: "OG" vs "They Call Him OG". Albums are matched by title,
+    // and a 2-letter title matches nothing, so prefer the English Wikipedia article name when it contains the label.
+    const wikiName = wikiTitle ? wikiTitle.replace(/\s*\((?:\d{4}\s+)?(?:[\w ]+\s)?(?:film|movie|TV series|television series|anime|series)\)\s*$/i, '').trim() : '';
+    const title = wikiName.length > label.length && wikiName.toLowerCase().includes(label.toLowerCase()) ? wikiName : label;
     const description = String(ent.descriptions?.en?.value ?? '');
     const year = wdYear(claims, 'P577') ?? yearOf(description);
     const ids = (p: string, max: number) => ((claims[p] ?? []) as any[]).map((c) => c?.mainsnak?.datavalue?.value?.id).filter((x): x is string => typeof x === 'string').slice(0, max);
     const labelIds = [...ids('P86', 3), ...ids('P136', 4), ...ids('P364', 1)];
     const labels: Record<string, string> = {};
     if (labelIds.length) { const l = (await wd({ action: 'wbgetentities', ids: labelIds.join('|'), props: 'labels', languages: 'en' })).entities ?? {}; for (const k of Object.keys(l)) labels[k] = String(l[k]?.labels?.en?.value ?? ''); }
-    const wikiTitle = ent.sitelinks?.enwiki?.title as string | undefined;
     let overview: string | undefined; let posterPath: string | undefined;
     if (wikiTitle) {
       try {
@@ -172,7 +176,7 @@ export function keylessTitles(fetchImpl: typeof fetch = fetch) {
     }
     const composers = ids('P86', 3).map((q) => labels[q]).filter(Boolean);
     const alts0: string[] = [];
-    const [wdComposers, moreTitles] = await Promise.all([composers.length ? [] : extra.composersFor?.(title, year, alts0).catch(() => [] as string[]) ?? [], extra.titlesFor?.(title, year, alts0).catch(() => [] as string[]) ?? []]);
+    const [wdComposers, moreTitles] = await Promise.all([composers.length ? [] : extra.composersFor?.(label, year, alts0).catch(() => [] as string[]) ?? [], extra.titlesFor?.(label, year, alts0).catch(() => [] as string[]) ?? []]);
     const langName = labels[ids('P364', 1)[0] ?? ''] ?? '';
     const isTv = SERIESY.test(description);
     const runtime = Number(claims.P2047?.[0]?.mainsnak?.datavalue?.value?.amount);
@@ -184,7 +188,7 @@ export function keylessTitles(fetchImpl: typeof fetch = fetch) {
       ...(Number.isFinite(runtime) && runtime > 0 && !isTv ? { runtimeMin: Math.round(runtime) } : {}),
       genres: ids('P136', 4).map((q) => labels[q]).filter(Boolean) as string[],
       originalLanguage: LANG_CODE[langName.toLowerCase().replace(/ language$/, '')], spokenLanguages: langName ? [langName.replace(/ language$/i, '')] : [],
-      composers: composers.length ? composers : (wdComposers ?? []), altTitles: [...new Set(moreTitles ?? [])].slice(0, 8),
+      composers: composers.length ? composers : (wdComposers ?? []), altTitles: [...new Set([...(title !== label && label.length >= 4 ? [label] : []), ...(moreTitles ?? [])])].slice(0, 8),
       ...(seasons && seasons.length ? { seasons } : {}),
     };
   }
