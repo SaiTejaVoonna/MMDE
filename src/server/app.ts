@@ -20,6 +20,7 @@ import type { MbRelease } from '../providers/mbReleases.ts';
 import type { MergedSoundtrack } from '../app/soundtrackMerge.ts';
 import { decideCors } from './cors.ts';
 import { clientKey, createRateLimiter, type Limit } from './rateLimit.ts';
+import type { Artwork, ArtworkQuery } from '../providers/artwork.ts';
 
 export interface AppDeps extends Deps {
   mediaResolvers: MediaResolver[];
@@ -51,6 +52,8 @@ export interface AppDeps extends Deps {
   wikidata?: (title: string, year?: number, alts?: string[]) => Promise<string[]>;
   wikidataComposers?: (title: string, year?: number, alts?: string[]) => Promise<string[]>;
   deezerIsrc?: (id: string) => Promise<string | null>;
+  /** Poster fallback chain (AniList, TVmaze, Wikipedia, soundtrack album cover). Optional. */
+  artwork?: (q: ArtworkQuery) => Promise<Artwork | null>;
 }
 
 const DEFAULT_LIMITS = { general: { windowMs: 60_000, max: 300 }, discover: { windowMs: 60_000, max: 12 } };
@@ -273,6 +276,15 @@ export function createApp(deps: AppDeps): Server {
         if (!/^\d{1,15}$/.test(id)) return send(res, 400, { error: 'id must be a Deezer track number' });
         try { return send(res, 200, { isrc: await deps.deezerIsrc(id) }); }
         catch (e) { return send(res, 502, { error: `ISRC lookup failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
+      }
+      if (req.method === 'GET' && path === '/api/artwork') {
+        if (!deps.artwork) return send(res, 503, { error: 'artwork lookup is not available on this server' });
+        const title = (url.searchParams.get('title') ?? '').trim();
+        if (title.length < 2 || title.length > 120) return send(res, 400, { error: 'title must be 2-120 characters' });
+        const yr = url.searchParams.get('year'); const ty = url.searchParams.get('type');
+        const alts = (url.searchParams.get('alt') ?? '').split('|').map((x) => x.trim()).filter((x) => x && x.length <= 120).slice(0, 3);
+        const found = await deps.artwork({ title, year: yr && /^\d{4}$/.test(yr) ? Number(yr) : undefined, type: ty === 'movie' || ty === 'tv' ? ty : undefined, anime: url.searchParams.get('anime') === '1', alts });
+        return send(res, 200, { artwork: found }, found ? 'public, max-age=3600, stale-while-revalidate=86400' : 'public, max-age=60');
       }
       if (req.method === 'GET' && path === '/api/media') return send(res, 200, { items: await deps.store.list() });
       if (req.method === 'GET' && path.startsWith('/api/media/')) {

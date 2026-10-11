@@ -71,15 +71,31 @@ export function keylessTitles(fetchImpl: typeof fetch = fetch) {
     }));
   }
 
+  /** Wikipedia full-text search finds films Wikidata's label search misses ("Baahubali 2: The Conclusion", "Kingdom (2025 film)"). */
+  async function searchWikipedia(query: string): Promise<Media[]> {
+    const d = await wp({ action: 'query', generator: 'search', gsrsearch: `${query} film`, gsrlimit: '15', prop: 'pageprops|description', ppprop: 'wikibase_item' });
+    const pages = ((d?.query?.pages ?? []) as any[]).sort((x, y) => Number(x.index ?? 0) - Number(y.index ?? 0));
+    return pages
+      .filter((p) => p.pageprops?.wikibase_item && FILMY.test(String(p.description ?? '')) && !NOT_A_TITLE.test(String(p.description ?? '')) && !/soundtrack|album|documentary/i.test(String(p.description ?? '')))
+      .slice(0, 8)
+      .map((p): Media => ({
+        id: `wd-${p.pageprops.wikibase_item}`, type: SERIESY.test(String(p.description)) ? 'tv' : 'movie', title: String(p.title).replace(/\s*\((\d{4} )?(Indian |Telugu |Tamil |Hindi )?(film|TV series|television series)\)$/i, ''), altTitles: [],
+        year: yearOf(String(p.description)), externalIds: { wikidata: String(p.pageprops.wikibase_item) }, overview: String(p.description ?? '').slice(0, 220),
+      }));
+  }
+
   const norm = (x: string) => x.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
   return {
     /** Anime from AniList (with covers), everything else from Wikidata. Same title in both: the AniList entry wins (it has a cover and seasons). */
     async search(query: string): Promise<{ results: Media[]; errors: string[] }> {
       const errors: string[] = [];
-      const [a, w] = await Promise.allSettled([searchAnime(query), searchWikidata(query)]);
+      const [a, w, p] = await Promise.allSettled([searchAnime(query), searchWikidata(query), searchWikipedia(query)]);
       const anime = a.status === 'fulfilled' ? a.value : (errors.push(`anilist: ${(a.reason as Error)?.message ?? 'failed'}`), [] as Media[]);
-      const wiki = w.status === 'fulfilled' ? w.value : (errors.push(`wikidata: ${(w.reason as Error)?.message ?? 'failed'}`), [] as Media[]);
+      const fromWd = w.status === 'fulfilled' ? w.value : (errors.push(`wikidata: ${(w.reason as Error)?.message ?? 'failed'}`), [] as Media[]);
+      const fromWp = p.status === 'fulfilled' ? p.value : (errors.push(`wikipedia: ${(p.reason as Error)?.message ?? 'failed'}`), [] as Media[]);
+      const wdSeen = new Set<string>();
+      const wiki = [...fromWp, ...fromWd].filter((m) => { const q = m.externalIds?.wikidata ?? m.id; if (wdSeen.has(q)) return false; wdSeen.add(q); return true; });
       const seen = new Set(anime.flatMap((m) => [m.title, ...m.altTitles].map(norm)));
       const merged = [...anime, ...wiki.filter((m) => !seen.has(norm(m.title)))];
       // An AniList title that matches the typed name exactly (in any language) puts anime first; otherwise movies are not pushed down.

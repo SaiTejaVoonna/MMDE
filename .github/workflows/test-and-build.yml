@@ -33,6 +33,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:web
+      # The Cloudflare Worker must keep bundling (no network, no account needed for a dry run).
+      - run: npx --yes wrangler@4 deploy --dry-run --outdir /tmp/worker-out
+      - run: node scripts/pages-build.mjs
 
   # Proves the Railway/container deployment path for real: build the image, run it like a platform would
   # (PORT injected, no .env, no secrets), then hit the API. No secrets are used in this job.

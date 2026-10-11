@@ -43,9 +43,42 @@
   const IMG = 'https://image.tmdb.org/t/p/';
   // TMDB gives a path under IMG; AniList and Wikipedia give a full https address.
   const imgSrc = (path, size) => (/^https:\/\//.test(path) ? path : IMG + size + path);
-  const poster = (path, size, cls) => path
-    ? el('img', { class: cls || 'poster', src: imgSrc(path, size), alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' })
-    : el('div', { class: (cls || 'poster') + ' noposter' }, '♪');
+  // Artwork fallback: a title with no poster asks the backend once (AniList cover, TVmaze, Wikipedia, then the soundtrack ALBUM cover) when it scrolls into view.
+  // Answers are remembered for the visit; at most two lookups run at a time so pictures never compete with song data. An album cover is labelled as one.
+  const artCache = new Map(); const artQueue = []; let artBusy = 0;
+  const artPump = () => {
+    while (artBusy < 2 && artQueue.length) {
+      const job = artQueue.shift(); artBusy++;
+      job().finally(() => { artBusy--; artPump(); });
+    }
+  };
+  const artFor = (m) => {
+    const key = [m.title, m.year || '', m.type || '', m.animation ? 'a' : ''].join('|');
+    if (!artCache.has(key)) {
+      artCache.set(key, new Promise((resolve) => {
+        artQueue.push(() => call('/api/artwork?title=' + encodeURIComponent(m.title) + (m.year ? '&year=' + m.year : '') + (m.type === 'movie' || m.type === 'tv' ? '&type=' + m.type : '') + (m.animation || m.type === 'anime' ? '&anime=1' : '') + ((m.altTitles || []).length ? '&alt=' + encodeURIComponent(m.altTitles.slice(0, 3).join('|')) : ''))
+          .then((d) => resolve(d && d.artwork && /^https:\/\//.test(d.artwork.url) ? d.artwork : null), () => resolve(null)));
+        artPump();
+      }));
+    }
+    return artCache.get(key);
+  };
+  const poster = (path, size, cls, media) => {
+    if (path) return el('img', { class: cls || 'poster', src: imgSrc(path, size), alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' });
+    const box = el('div', { class: (cls || 'poster') + ' noposter' }, '♪');
+    if (media && media.title && media.title.length >= 2) {
+      const fill = () => artFor(media).then((a) => {
+        if (!a || !box.isConnected) return;
+        const img = el('img', { class: (cls || 'poster') + (a.kind === 'album' ? ' albumart' : ''), src: a.url, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', title: a.kind === 'album' ? 'Soundtrack album cover (no poster found)' : '' });
+        box.replaceWith(img);
+      });
+      if ('IntersectionObserver' in window) {
+        const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) { io.disconnect(); fill(); } }, { rootMargin: '200px' });
+        io.observe(box);
+      } else fill();
+    }
+    return box;
+  };
   const mins = (n) => (n ? Math.floor(n / 60) + 'h ' + (n % 60) + 'm' : '');
   const chips = (list) => el('div', { class: 'meta' }, list.filter(Boolean).map((t) => el('span', { class: 'tag' }, t)));
   // Chronological timeline: a line with a year marker above each poster, oldest first.
@@ -457,7 +490,7 @@
     const scope = { number: sn.seasonNumber, name: sn.name || ('Season ' + sn.seasonNumber), airYear: sn.airDate ? Number(sn.airDate.slice(0, 4)) : undefined };
     const back = el('a', { href: '#/', onclick: (e) => { e.preventDefault(); showDetails({ id: d.id, type: 'tv', title: d.title }); } }, '← Back to ' + d.title);
     const hero = el('section', { class: 'dhero' },
-      poster(sn.posterPath || d.posterPath, 'w342', 'dposter'),
+      poster(sn.posterPath || d.posterPath, 'w342', 'dposter', d),
       el('div', { class: 'dtext' },
         el('h2', {}, d.title + ' · ' + scope.name),
         chips([(sn.episodeCount || 0) + ' episodes', sn.airDate ? 'aired ' + sn.airDate : null, sn.voteAverage ? '★ ' + sn.voteAverage : null]),
@@ -481,7 +514,7 @@
     try { d = await call('/api/details/' + encodeURIComponent(media.id)); }
     catch (e) { app.replaceChildren(back, el('div', { class: 'card warn' }, 'Could not load details: ' + e.message + ' (press Back and try again)')); return; }
     const hero = el('section', { class: 'dhero tint', style: d.backdropPath ? 'background-image:linear-gradient(90deg,rgba(8,11,20,.97) 25%,rgba(8,11,20,.72)),url(' + imgSrc(d.backdropPath, 'w780') + ')' : d.posterPath ? 'background-image:linear-gradient(90deg,rgba(8,11,20,.96) 30%,rgba(8,11,20,.78)),url(' + imgSrc(d.posterPath, 'w342') + ')' : '' },
-      poster(d.posterPath, 'w342', 'dposter'),
+      poster(d.posterPath, 'w342', 'dposter', d),
       el('div', { class: 'dtext' },
         el('h2', {}, d.title),
         d.tagline ? el('p', { class: 'tagline' }, d.tagline) : null,
@@ -581,7 +614,7 @@
       el('div', { class: 'chips fchips' }, tabs.map((t) => el('button', { type: 'button', class: 'chip' + (t[0] === filter ? ' active' : ''), onclick: () => showResults(q, t[0]) }, t[1] + ' ' + t[2]))),
       shown.length
         ? el('div', { class: 'rgrid' }, shown.map((m) => el('button', { type: 'button', class: 'rcard', onclick: () => { backFn = () => showResults(q, filter); showDetails(m); } },
-            poster(m.posterPath, 'w185'),
+            poster(m.posterPath, 'w185', undefined, m),
             el('span', { class: 'rtext' }, el('strong', {}, m.title), el('small', {}, metaLine(m)), m.overview ? el('span', { class: 'rover' }, m.overview) : null))))
         : el('p', { class: 'note' }, 'Nothing found. Try fewer words, or add a language or year, like "kalki hindi 2024".')].filter(Boolean));
   };
@@ -591,7 +624,7 @@
     const row = el('section', { class: 'homerow' }, el('h3', {}, title));
     if (!items.length) { if (emptyText) row.append(el('p', { class: 'note' }, emptyText)); return row; }
     row.append(el('div', { class: 'hscroll' }, items.map((m) => el('button', { type: 'button', class: 'pcard hcard', onclick: () => pick(m) },
-      poster(m.posterPath, 'w342'), el('strong', {}, m.title), el('small', {}, [TYPE_LABEL[m.type] || m.type, m.year].filter(Boolean).join(' · '))))));
+      poster(m.posterPath, 'w342', undefined, m), el('strong', {}, m.title), el('small', {}, [TYPE_LABEL[m.type] || m.type, m.year].filter(Boolean).join(' · '))))));
     return row;
   };
   const homeRowLoader = (title, kind) => {

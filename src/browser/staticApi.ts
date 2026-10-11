@@ -1,6 +1,7 @@
 import type { Media } from '../domain/types.ts';
 import { buildMergedSoundtrack } from '../app/soundtrackService.ts';
 import { animeThemesSource } from '../providers/animeThemesSearch.ts';
+import { artworkFinder } from '../providers/artwork.ts';
 import { catalogResolver } from '../providers/catalogAlbums.ts';
 import { keylessTitles } from '../providers/keylessTitles.ts';
 import { mbReleaseSource } from '../providers/mbReleases.ts';
@@ -27,6 +28,7 @@ export function createStaticApi(opts: StaticApiOptions = {}) {
   const wiki = wikiSoundtrack('', f);
   const links = trackLinkResolver('', f, { deezer: false });
   const keyless = keylessTitles(f);
+  const artwork = artworkFinder('', f);
   const src = {
     wiki: (t: string, y?: number, a?: string[]) => wiki.find(t, y, a), albums: catalog.findAlbums, albumTracks: catalog.tracks,
     animeThemes: themes.find, musicBrainz: mb.find, wikidata: wdt.find, wikidataComposers: wdt.composers,
@@ -97,6 +99,13 @@ export function createStaticApi(opts: StaticApiOptions = {}) {
       if (title.length < 1 || title.length > 140 || film.length > 140) throw new Error('invalid title or film');
       const lenRaw = q.get('length'); const yrRaw = q.get('year');
       return links.resolve({ title, artists, film, lengthSec: lenRaw && /^\d{1,4}$/.test(lenRaw) && Number(lenRaw) > 0 ? Number(lenRaw) : undefined, year: yrRaw && /^\d{4}$/.test(yrRaw) ? Number(yrRaw) : undefined });
+    }
+
+    if (p === '/api/artwork') {
+      const title = (q.get('title') ?? '').trim();
+      if (title.length < 2 || title.length > 120) throw new Error('title must be 2-120 characters');
+      const yr = q.get('year');
+      return { artwork: await artwork.find({ title, year: yr && /^\d{4}$/.test(yr) ? Number(yr) : undefined, type: q.get('type') === 'movie' ? 'movie' : q.get('type') === 'tv' ? 'tv' : undefined, anime: q.get('anime') === '1', alts: (q.get('alt') ?? '').split('|').map((x) => x.trim()).filter(Boolean).slice(0, 3) }) };
     }
 
     if (p === '/api/deezer-isrc') return { isrc: null }; // Deezer cannot be called from a browser
