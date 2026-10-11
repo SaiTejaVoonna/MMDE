@@ -74,7 +74,7 @@ Guards (tests): the token never appears in any response, header or error (`tests
 
 ## Protection and limits built in
 - **CORS allowlist:** a website not listed in `MMDE_WEB_ORIGIN` gets 403 before any upstream call. Only GET/HEAD/OPTIONS are served.
-- **Rate limits per visitor** (Cloudflare's `CF-Connecting-IP`): 120 requests/min overall, 20/min for the heavy lookups (soundtrack, albums, search, artwork, track links); `/api/health` exempt; 429 with `Retry-After`.
+- **Rate limits per visitor** (Cloudflare's `CF-Connecting-IP`): 180 requests/min overall, 30/min for the heavy lookups (soundtrack, albums, album tracks); `/api/health` exempt; 429 with `Retry-After`.
   These counters live in each Worker instance's memory, so they are a good brake, not an exact quota. For a hard limit add a Cloudflare rate-limiting rule (dashboard > Security > WAF > Rate limiting rules; the free plan includes one) on `/api/*`.
 - **Input validation** on every parameter; upstream failures become a 502 with a short message (credential redacted), never a stack trace.
 - **Caching:** answers carry `Cache-Control` (search 1 min, albums/soundtrack 2 min + stale-while-revalidate, details/trending/track links 1 h); with KV, complete answers are also stored (6-24 h). Errors, partial answers and "nothing found" are never stored for long.

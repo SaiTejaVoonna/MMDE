@@ -206,3 +206,14 @@ test('artwork: one failing source does not stop the chain, and "nothing found" i
   const miss = await router.handle('/api/artwork?title=Nothing%20Here&year=2020');
   assert.deepEqual([miss.status, miss.cache, (miss.body as { artwork: unknown }).artwork], [200, 'short', null]);
 });
+
+test('every outgoing call carries our User-Agent (the Workers runtime sends none, and Wikimedia rejects that)', async () => {
+  const seen: Array<{ host: string; ua: string | null }> = [];
+  const router = createEdgeRouter({ userAgent: 'MMDE/test (contact@example.com)', fetchImpl: (async (u: string | URL, init?: RequestInit) => {
+    seen.push({ host: new URL(String(u)).host, ua: new Headers(init?.headers).get('user-agent') });
+    return json({ search: [], query: { pages: [] }, data: { Page: { media: [] } } });
+  }) as typeof fetch });
+  await router.handle('/api/search?q=rrr');
+  assert.ok(seen.some((s) => s.host === 'www.wikidata.org') && seen.some((s) => s.host === 'en.wikipedia.org'));
+  for (const s of seen) assert.equal(s.ua, 'MMDE/test (contact@example.com)', `${s.host} must get our User-Agent`);
+});
