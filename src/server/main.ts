@@ -13,6 +13,7 @@ import { catalogResolver } from '../providers/catalogAlbums.ts';
 import { animeThemesSource } from '../providers/animeThemesSearch.ts';
 import { mbReleaseSource } from '../providers/mbReleases.ts';
 import { deezerIsrcResolver } from '../providers/deezerIsrc.ts';
+import { artworkFinder } from '../providers/artwork.ts';
 import { wikidataTitleSource } from '../providers/wikidataTitles.ts';
 import { musicBrainzResolver } from '../providers/musicbrainz.ts';
 import { loadSeeds, seedMediaResolver } from '../providers/seeds.ts';
@@ -76,7 +77,7 @@ createApp({
   soundtrack: offline ? undefined : (title, year, alts) => wikiSoundtrack(userAgent, musicFetch).find(title, year, alts),
   trackLinks: offline ? undefined : ((r) => (q) => r.resolve(q))(trackLinkResolver(userAgent, musicFetch)),
   ...(offline ? {} : ((c, at, mb, wd) => ({ albums: c.findAlbums, albumTracks: c.tracks, animeThemes: at.find, musicBrainz: mb.find, wikidata: wd.find, wikidataComposers: wd.composers }))(catalogResolver(userAgent, musicFetch), animeThemesSource(userAgent, musicFetch), mbReleaseSource(userAgent, musicFetch), wikidataTitleSource(userAgent, musicFetch))),
-  ...(offline ? {} : { deezerIsrc: deezerIsrcResolver(userAgent, musicFetch) }),
+  ...(offline ? {} : { deezerIsrc: deezerIsrcResolver(userAgent, musicFetch), artwork: artworkFinder(userAgent, musicFetch).find }),
   store: jsonStore(join(root, 'data', 'store.json')), webRoot: join(root, 'web'),
 }).listen(port, () => {
   console.log(`MMDE prototype on http://localhost:${port}  (${offline ? 'OFFLINE: local seeds only' : 'live providers enabled'})`);

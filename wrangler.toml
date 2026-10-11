@@ -1,0 +1,19 @@
+# MMDE API as a Cloudflare Worker. Nothing here is a secret: the TMDB token is set with `npx wrangler secret put TMDB_READ_ACCESS_TOKEN`
+# (or in the Cloudflare dashboard: Workers > mmde-api > Settings > Variables and Secrets). See docs/CLOUDFLARE.md.
+name = "mmde-api"
+main = "src/worker/index.ts"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[vars]
+# Exact origin(s) of the Pages site that may call this API, comma separated, no path. Empty = no browser site may call it.
+# Set it to your Pages address once you know it, e.g. "https://mmde.pages.dev".
+MMDE_WEB_ORIGIN = ""
+# Who to contact about this software; sent to MusicBrainz / AnimeThemes / Wikipedia in the User-Agent.
+MMDE_CONTACT = "set-me@example.com"
+
+# Optional shared cache (Workers KV). Create one with `npx wrangler kv namespace create CACHE`, then uncomment and paste the id.
+# Without it the Worker still works; each Worker instance just keeps its own short-lived memory cache.
+# [[kv_namespaces]]
+# binding = "CACHE"
+# id = "<paste-the-namespace-id>"
