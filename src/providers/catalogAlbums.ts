@@ -6,7 +6,7 @@ import { uaHeaders } from './http.ts';
 // YouTube and Spotify need API keys to list albums/playlists, so they are not covered here.
 
 export type CatalogPlatform = 'apple' | 'deezer' | 'deezer-playlist';
-export interface CatalogAlbum { platform: CatalogPlatform; id: string; name: string; artist: string; art?: string; url: string; trackCount?: number; kind: 'album' | 'playlist'; /** ISO date when the catalog states one (Apple does). */ releaseDate?: string; /** Found because Wikipedia's tracklist names this album (not because its name contains the film title). */ viaWiki?: boolean }
+export interface CatalogAlbum { platform: CatalogPlatform; id: string; name: string; artist: string; art?: string; url: string; trackCount?: number; kind: 'album' | 'playlist'; /** ISO date when the catalog states one (Apple does). */ releaseDate?: string; /** Found because Wikipedia's tracklist names this album (not because its name contains the film title). */ viaWiki?: boolean; /** Apple storefront ("in", "jp") this album was found in when the default store did not have it; its tracks must be looked up in the same store. */ country?: string }
 export interface CatalogTrack { no: number; title: string; artists: string[]; lengthSec?: number; url: string; id: string; art?: string; /** Name of the album the song is on (playlist rows only), so a community playlist can be checked against official albums. */ album?: string }
 
 /** Lowercase, accents removed, punctuation -> space, repeated letters collapsed ("Bāhubali" ~ "Baahubali"). */
@@ -83,8 +83,9 @@ export function isFilmPlaylist(filmTitle: string, name: string, alts: string[] =
   return head.length >= 4 && /\d/.test(head) && looseFold(name).includes(head);
 }
 
-export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fetch, opts: { /** Deezer sends no CORS headers, so a browser cannot call it. */ deezer?: boolean } = {}) {
+export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fetch, opts: { /** Deezer sends no CORS headers, so a browser cannot call it. */ deezer?: boolean; /** Apple stores tried, in order, ONLY when the default store has no album for the title (Indian and Japanese releases are often missing from it). */ fallbackCountries?: string[] } = {}) {
   const useDeezer = opts.deezer !== false;
+  const fallbackCountries = opts.fallbackCountries ?? ['in', 'jp'];
   const appleWait = createRateLimiter(3000); // the iTunes Search API is reported to allow about 20 calls/min
   const deezerWait = createRateLimiter(300);
   const cache = new Map<string, { at: number; value: unknown }>();
@@ -142,6 +143,23 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
           out.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', releaseDate: r.releaseDate ? String(r.releaseDate) : undefined });
         }
       }
+      // The default (US) Apple store lacks many Indian and Japanese soundtracks ("They Call Him OG" is only in the India store).
+      // Try other stores, one at a time, and only when nothing was found: each extra search costs a slot of Apple's ~20 calls/min.
+      if (!out.some((x) => x.platform === 'apple')) {
+        const names = [film, ...alts.slice(0, 1)];
+        stores: for (const country of fallbackCountries) {
+          for (const term of names) {
+            try {
+              const d = await apple(`https://itunes.apple.com/search?${new URLSearchParams({ term: `${term} soundtrack`, entity: 'album', limit: '25', country })}`);
+              for (const r of d.results ?? []) {
+                if (!r.collectionId || out.some((x) => x.id === String(r.collectionId)) || !isFilmAlbum(film, String(r.collectionName ?? ''), alts) || (r.trackCount ?? 0) < 2) continue;
+                out.push({ platform: 'apple', id: String(r.collectionId), name: String(r.collectionName), artist: String(r.artistName ?? ''), art: r.artworkUrl100 ? String(r.artworkUrl100).replace('100x100', '300x300') : undefined, url: String(r.collectionViewUrl ?? ''), trackCount: r.trackCount, kind: 'album', releaseDate: r.releaseDate ? String(r.releaseDate) : undefined, country });
+              }
+            } catch { /* this store failed: try the next one */ }
+            if (out.some((x) => x.platform === 'apple')) break stores;
+          }
+        }
+      }
       const seen = new Set(out.map((x) => looseFold(x.name)));
       if (d.status === 'fulfilled' || altDeezer.length) {
         for (const r of [...(d.status === 'fulfilled' ? d.value.data ?? [] : []), ...altDeezer]) {
@@ -186,36 +204,44 @@ export function catalogResolver(userAgent: string, fetchImpl: typeof fetch = fet
   const APPLE_BATCH = 8; const APPLE_LIMIT = 200;
   type Waiter = { resolve: (v: CatalogTrack[]) => void; reject: (e: unknown) => void };
   let pending = new Map<string, Waiter[]>(); let timer: ReturnType<typeof setTimeout> | undefined;
+  // Pending lookups are keyed "country|id" (country empty = default store); each store is batched on its own.
   async function flushApple() {
     const batch = pending; pending = new Map(); timer = undefined;
-    const ids = [...batch.keys()];
+    const byStore = new Map<string, string[]>();
+    for (const k of batch.keys()) { const c = k.split('|')[0]!; byStore.set(c, [...(byStore.get(c) ?? []), k]); }
+    for (const [country, keys] of byStore) await flushStore(batch, country, keys);
+  }
+  async function flushStore(batch: Map<string, Waiter[]>, country: string, ids: string[]) {
+    const cq = country ? { country } : {};
     for (let i = 0; i < ids.length; i += APPLE_BATCH) {
       const chunk = ids.slice(i, i + APPLE_BATCH);
       const settle = (id: string, f: (w: Waiter) => void) => (batch.get(id) ?? []).forEach(f);
       try {
-        const d = await apple(`https://itunes.apple.com/lookup?${new URLSearchParams({ id: chunk.join(','), entity: 'song', limit: String(APPLE_LIMIT) })}`);
+        const d = await apple(`https://itunes.apple.com/lookup?${new URLSearchParams({ id: chunk.map((k) => k.split('|')[1]!).join(','), entity: 'song', limit: String(APPLE_LIMIT), ...cq })}`);
         const rows: any[] = d.results ?? [];
         if (chunk.length > 1 && rows.length >= APPLE_LIMIT) {
           // The answer may have been cut off: fall back to one call per album so no album silently loses songs.
           for (const id of chunk) {
-            try { const one = await apple(`https://itunes.apple.com/lookup?${new URLSearchParams({ id, entity: 'song' })}`); const t = mapAppleTracks(one.results ?? []); settle(id, (w) => w.resolve(t)); }
+            try { const one = await apple(`https://itunes.apple.com/lookup?${new URLSearchParams({ id: id.split('|')[1]!, entity: 'song', ...cq })}`); const t = mapAppleTracks(one.results ?? []); settle(id, (w) => w.resolve(t)); }
             catch (e) { settle(id, (w) => w.reject(e)); }
           }
           continue;
         }
-        for (const id of chunk) settle(id, (w) => w.resolve(mapAppleTracks(rows.filter((r) => String(r.collectionId) === id))));
+        for (const id of chunk) settle(id, (w) => w.resolve(mapAppleTracks(rows.filter((r) => String(r.collectionId) === id.split('|')[1]))));
       } catch (e) { for (const id of chunk) settle(id, (w) => w.reject(e)); }
     }
   }
-  const appleTracks = (id: string) => new Promise<CatalogTrack[]>((resolve, reject) => {
-    const list = pending.get(id) ?? []; list.push({ resolve, reject }); pending.set(id, list);
+  const appleTracks = (id: string, country = '') => new Promise<CatalogTrack[]>((resolve, reject) => {
+    const key = `${country}|${id}`;
+    const list = pending.get(key) ?? []; list.push({ resolve, reject }); pending.set(key, list);
     timer ??= setTimeout(() => { void flushApple(); }, 40);
   });
 
-  async function tracks(platform: CatalogPlatform, id: string): Promise<CatalogTrack[]> {
+  async function tracks(platform: CatalogPlatform, id: string, country?: string): Promise<CatalogTrack[]> {
     if (!/^\d{1,15}$/.test(id)) throw new Error('invalid id');
-    return remember(`tracks|${platform}|${id}`, async () => {
-      if (platform === 'apple') return appleTracks(id);
+    if (country !== undefined && !/^[a-z]{2}$/.test(country)) throw new Error('invalid store');
+    return remember(`tracks|${platform}|${country ?? ''}|${id}`, async () => {
+      if (platform === 'apple') return appleTracks(id, country);
       const path = platform === 'deezer' ? `album/${id}` : `playlist/${id}`;
       const d = await deezer(`https://api.deezer.com/${path}/tracks?limit=120`);
       return (d.data ?? []).filter((r: any) => r.link).map((r: any, i: number): CatalogTrack => ({

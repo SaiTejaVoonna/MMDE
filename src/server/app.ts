@@ -45,7 +45,7 @@ export interface AppDeps extends Deps {
   trackLinks?: (q: TrackQuery) => Promise<TrackLinksResult>;
   /** Apple Music / Deezer albums and playlists named after a film (fallback when Wikipedia has no tracklist). */
   albums?: (title: string, year?: number, extraNames?: string[], alts?: string[]) => Promise<CatalogAlbum[]>;
-  albumTracks?: (platform: CatalogPlatform, id: string) => Promise<CatalogTrack[]>;
+  albumTracks?: (platform: CatalogPlatform, id: string, country?: string) => Promise<CatalogTrack[]>;
   /** Anime opening/ending songs per season (AnimeThemes). Optional. */
   animeThemes?: (title: string, alts: string[], firstYear?: number) => Promise<AnimeThemesEntry[]>;
   musicBrainz?: (title: string, alts: string[], composers: string[]) => Promise<MbRelease[]>;
@@ -244,7 +244,9 @@ export function createApp(deps: AppDeps): Server {
         const platform = url.searchParams.get('platform') ?? '';
         const id = url.searchParams.get('id') ?? '';
         if (!['apple', 'deezer', 'deezer-playlist'].includes(platform) || !/^\d{1,15}$/.test(id)) return send(res, 400, { error: 'invalid platform or id' });
-        try { return send(res, 200, { tracks: await deps.albumTracks(platform as CatalogPlatform, id) }); }
+        const store = url.searchParams.get('country') ?? undefined;
+        if (store !== undefined && !/^[a-z]{2}$/.test(store)) return send(res, 400, { error: 'invalid store' });
+        try { return send(res, 200, { tracks: await deps.albumTracks(platform as CatalogPlatform, id, store) }); }
         catch (e) { return send(res, 502, { error: `track list failed: ${e instanceof Error ? e.message : 'upstream error'}` }); }
       }
       if (req.method === 'GET' && path === '/api/soundtrack-merged') {
