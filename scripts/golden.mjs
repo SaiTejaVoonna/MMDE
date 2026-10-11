@@ -12,10 +12,12 @@ const arg = (n) => process.argv.find((a) => a.startsWith(`--${n}=`))?.split('=')
 const limit = Number(arg('titles') ?? 999);
 const { titles } = JSON.parse(readFileSync(join(root, 'data', 'golden', 'titles.json'), 'utf8'));
 
-const get = async (path, timeoutMs = 120_000) => {
+const get = async (path, timeoutMs = 120_000, retried = false) => {
   const t0 = Date.now();
   try {
     const r = await fetch(base + path, { signal: AbortSignal.timeout(timeoutMs) });
+    // Be a polite client: when the API says slow down, wait as told and ask once more.
+    if (r.status === 429 && !retried) { await new Promise((ok) => setTimeout(ok, (Number(r.headers.get('retry-after')) || 5) * 1000 + 500)); return get(path, timeoutMs, true); }
     const body = await r.json().catch(() => ({}));
     return { status: r.status, body, ms: Date.now() - t0, cache: r.headers.get('x-mmde-cache') };
   } catch (e) { return { status: 0, body: { error: String(e?.message ?? e) }, ms: Date.now() - t0 }; }
@@ -53,7 +55,7 @@ for (const t of titles.slice(0, limit)) {
       status: f.status, ms: f.ms, songs: f.body.counts?.total ?? 0, green: f.body.counts?.green ?? 0, amber: f.body.counts?.amber ?? 0, red: f.body.counts?.red ?? 0,
       withProof: tracks.filter((x) => x.proof?.isrc).length, withAppleLink: apple, withDeezerLink: deezer, albums: (f.body.albums ?? []).length, languages: (f.body.languages ?? []).map((l) => `${l.language}:${l.songs}`),
       verified: f.body.verified, composerSource: f.body.composerSource, partial: !!f.body.partial,
-      sources: (f.body.sources ?? []).map((x) => `${x.key}:${x.state}`), error: f.status !== 200 ? f.body.error : undefined,
+      sources: (f.body.sources ?? []).map((x) => `${x.key}:${x.state}${x.state === 'failed' || x.state === 'pending' ? '(' + String(x.detail ?? x.error ?? x.message ?? '').slice(0, 80) + ')' : ''}`), error: f.status !== 200 ? f.body.error : undefined,
     };
     row.meetsFloor = row.full.songs >= (t.minSongs ?? 0);
     const a = await get(`/api/artwork?${q({ title, year, type: det.kind === 'tv' ? 'tv' : det.kind === 'movie' ? 'movie' : undefined, anime: extra.anime })}`);

@@ -45,8 +45,11 @@ const KEYLESS_ID = /^(al-\d{1,10}|wd-Q\d{1,12})$/;
 const year4 = (raw: string | null) => (raw && /^\d{4}$/.test(raw) ? Number(raw) : undefined);
 
 export function createEdgeRouter(opts: EdgeOptions) {
-  const f: typeof fetch = opts.fetchImpl ?? ((u, i) => fetch(u, i));
   const ua = opts.userAgent;
+  const base: typeof fetch = opts.fetchImpl ?? ((u, i) => fetch(u, i));
+  // The Workers runtime sends NO User-Agent by default (a browser or Node does), and Wikimedia answers such requests with 403 (seen in the live run).
+  // Every outgoing call that lacks one gets ours, which names the project and a contact, as Wikimedia and MusicBrainz ask.
+  const f: typeof fetch = (u, init) => { const h = new Headers(init?.headers); if (!h.has('user-agent')) h.set('user-agent', ua); return base(u, { ...init, headers: h }); };
   const token = opts.tmdbToken?.trim() || undefined;
   const catalog = catalogResolver(ua, f);
   const mb = mbReleaseSource(ua, f);

@@ -11,9 +11,10 @@ import { CACHE_CONTROL, CACHE_TTL, createEdgeRouter, type CachePolicy, type Edge
 export interface KVLike { get(key: string): Promise<string | null>; put(key: string, value: string, opts?: { expirationTtl?: number }): Promise<unknown> }
 export interface Env { TMDB_READ_ACCESS_TOKEN?: string; MMDE_WEB_ORIGIN?: string; MMDE_CONTACT?: string; CACHE?: KVLike }
 export interface Ctx { waitUntil(p: Promise<unknown>): void }
-export interface WorkerOptions { fetchImpl?: typeof fetch; /** Requests per minute per client; defaults 120 general, 20 for the heavy lookups. */ limits?: { general: number; heavy: number } }
+export interface WorkerOptions { fetchImpl?: typeof fetch; /** Requests per minute per client; defaults 180 general, 30 for the heavy lookups. */ limits?: { general: number; heavy: number } }
 
-const HEAVY = new Set(['/api/soundtrack-merged', '/api/albums', '/api/album-tracks', '/api/artwork', '/api/track-links', '/api/search']);
+// Only lookups that fan out to several slow, rate-limited services count as heavy. Search, details, artwork and per-song links are cheap and often cached upstream.
+const HEAVY = new Set(['/api/soundtrack-merged', '/api/albums', '/api/album-tracks']);
 const json = (status: number, body: unknown, headers: Record<string, string>) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', ...headers } });
 
@@ -24,8 +25,8 @@ export function cacheKey(url: URL): string {
 }
 
 export function createWorker(opts: WorkerOptions = {}) {
-  const general = createRateLimiter({ windowMs: 60_000, max: opts.limits?.general ?? 120 });
-  const heavy = createRateLimiter({ windowMs: 60_000, max: opts.limits?.heavy ?? 20 });
+  const general = createRateLimiter({ windowMs: 60_000, max: opts.limits?.general ?? 180 });
+  const heavy = createRateLimiter({ windowMs: 60_000, max: opts.limits?.heavy ?? 30 });
   let router: ReturnType<typeof createEdgeRouter> | undefined; let routerFor = '';
   const routerFrom = (env: Env) => {
     const token = (env.TMDB_READ_ACCESS_TOKEN ?? '').trim(); const contact = (env.MMDE_CONTACT ?? '').trim() || 'set MMDE_CONTACT';
