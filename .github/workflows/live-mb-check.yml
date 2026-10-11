@@ -16,4 +16,4 @@ jobs:
           WRANGLER_SEND_METRICS=false nohup npx --yes wrangler@4 dev --local --port 8788 > /tmp/wrangler.log 2>&1 &
           for i in $(seq 1 60); do curl -s -m 2 http://127.0.0.1:8788/api/health && break || sleep 2; done
       - name: Golden titles
-        run: BASE_URL=http://127.0.0.1:8788 node scripts/golden.mjs --json=/tmp/golden.json
+        run: BASE_URL=http://127.0.0.1:8788 node scripts/golden.mjs --titles=1 --json=/tmp/golden.json
