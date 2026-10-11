@@ -1,0 +1,15 @@
+{
+  "note": "Representative real titles for measuring discovery quality. Not expectations of exact song counts: they are floors so a regression is visible. Edit freely; Sai approves what counts as 'good'.",
+  "titles": [
+    { "query": "RRR", "expect": "RRR", "year": 2022, "minSongs": 20, "kind": "telugu film" },
+    { "query": "Baahubali 2: The Conclusion", "expect": "Baahubali 2", "year": 2017, "minSongs": 20, "kind": "telugu film (multi-language releases)" },
+    { "query": "Pushpa 2: The Rule", "expect": "Pushpa 2", "year": 2024, "minSongs": 10, "kind": "telugu film" },
+    { "query": "Kalki 2898 AD", "expect": "Kalki 2898", "year": 2024, "minSongs": 10, "kind": "telugu film" },
+    { "query": "They Call Him OG", "expect": "OG", "year": 2025, "minSongs": 10, "kind": "telugu film (score album + singles)" },
+    { "query": "Jawan", "expect": "Jawan", "year": 2023, "minSongs": 8, "kind": "hindi film" },
+    { "query": "Fire Force", "expect": "Fire Force", "year": 2019, "anime": true, "minSongs": 20, "kind": "anime (japanese titles)" },
+    { "query": "That Time I Got Reincarnated as a Slime", "expect": "Slime", "year": 2018, "anime": true, "minSongs": 20, "kind": "anime (large soundtrack)" },
+    { "query": "Your Name", "expect": "Your Name", "year": 2016, "minSongs": 8, "kind": "japanese film" },
+    { "query": "Crash Landing on You", "expect": "Crash Landing", "year": 2019, "minSongs": 8, "kind": "korean drama OST" }
+  ]
+}
