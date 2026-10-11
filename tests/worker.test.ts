@@ -252,3 +252,13 @@ test('Apple store fallback costs nothing when the default store already has the 
   const none = catalogResolver('test', appleFake(false, []), { deezer: false });
   assert.deepEqual((await none.findAlbums('Nothing Here Film', 2020)).filter((x) => x.platform === 'apple'), []);
 });
+
+import { isFilmAlbum } from '../src/providers/catalogAlbums.ts';
+test('album matching: repeated-letter titles like "RRR" match their albums as whole words only; 2-letter titles still match nothing', () => {
+  assert.ok(isFilmAlbum('RRR', 'RRR (Telugu) [Original Motion Picture Soundtrack]'));
+  assert.ok(isFilmAlbum('RRR', 'RRR - Hindi'));
+  assert.ok(!isFilmAlbum('RRR', 'Rrrrrr Greatest Hits'));
+  assert.ok(!isFilmAlbum('RRR', 'Barrrr Songs'));
+  assert.ok(!isFilmAlbum('OG', 'Kanye OG Mix'), '2-letter titles are too ambiguous');
+  assert.ok(isFilmAlbum('Bāhubali', 'Baahubali 2 (Telugu)'), 'the old accent/doubled-letter tolerance is unchanged');
+});
