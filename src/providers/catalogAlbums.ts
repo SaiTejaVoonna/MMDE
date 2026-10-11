@@ -13,12 +13,23 @@ export interface CatalogTrack { no: number; title: string; artists: string[]; le
 export const looseFold = (x: string) =>
   x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/(\p{L})\1+/gu, '$1').trim();
 
+/** Accents removed, lowercase, punctuation -> space; letters are NOT collapsed. */
+const plainFold = (x: string) => x.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
 const SOUNDTRACKY = /soundtrack|\bost\b|motion picture|original score|film score|\bscore\b|jukebox|music from/i;
 
 /** An album belongs to the film when its name contains the whole film title (accent/spelling tolerant). */
 export function isFilmAlbum(filmTitle: string, albumName: string, alts: string[] = []): boolean {
   const name = looseFold(albumName);
-  return [filmTitle, ...alts].some((t) => { const film = looseFold(t); return film.length >= 3 && name.includes(film); });
+  // looseFold collapses doubled letters, which turns "RRR" into "r": a title like that is compared letter-for-letter, as whole words
+  // ("RRR (Telugu)" matches, "Rrrr" or a longer word does not).
+  const exact = ` ${plainFold(albumName)} `;
+  return [filmTitle, ...alts].some((t) => {
+    const film = looseFold(t);
+    if (film.length >= 3 && name.includes(film)) return true;
+    const plain = plainFold(t);
+    return plain.length >= 3 && exact.includes(` ${plain} `);
+  });
 }
 
 const NON_LATIN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Devanagari}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Malayalam}\p{Script=Kannada}\p{Script=Thai}\p{Script=Arabic}\p{Script=Cyrillic}]/u;
