@@ -5,31 +5,14 @@ on:
 jobs:
   live:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '22' }
-      - run: npm ci
-      - name: Start the Worker under the real Workers runtime (workerd) with a simulated KV cache
+      - name: Apple iTunes Search probe (which store / term finds the OG albums?)
         run: |
-          sed 's/^# \[\[kv_namespaces\]\]/[[kv_namespaces]]/; s/^# binding = "CACHE"/binding = "CACHE"/; s/^# id = .*/id = "local-test-cache"/' wrangler.toml > /tmp/wrangler.ci.toml
-          cp /tmp/wrangler.ci.toml ./wrangler.ci.toml
-          WRANGLER_SEND_METRICS=false nohup npx --yes wrangler@4 dev -c wrangler.ci.toml --local --port 8788 > /tmp/wrangler.log 2>&1 &
-          for i in $(seq 1 60); do curl -s -m 2 http://127.0.0.1:8788/api/health && break || sleep 2; done
-          echo
-      - name: Cache behaviour inside workerd (miss, then hit)
-        run: |
-          for i in 1 2; do curl -s -D - -o /dev/null "http://127.0.0.1:8788/api/albums?title=Fire%20Force&year=2019" | grep -iE "^(HTTP|x-mmde-cache|cache-control)"; sleep 1; done
-          echo "-- bad origin:"; curl -s -o /dev/null -w '%{http_code}\n' -H 'Origin: https://evil.example' "http://127.0.0.1:8788/api/search?q=x"
-      - name: MusicBrainz probe (which User-Agent / pacing does it accept from this network?)
-        run: |
-          u='https://musicbrainz.org/ws/2/release?query=release:%22Fire%20Force%22&fmt=json&limit=1'
-          for ua in 'MMDE/0.3 (personal, non-commercial; set-me@example.com)' 'MMDE/0.3 (https://github.com/SaiTejaVoonna/MMDE)' ''; do
-            echo "UA=[$ua]"; curl -s -m 20 -A "$ua" -D - -o /dev/null "$u" | grep -iE "^(HTTP|retry-after|x-ratelimit)"; sleep 2
+          for c in us in jp; do
+            for term in "They Call Him OG" "They Call Him OG soundtrack" "OG Thaman"; do
+              echo "== country=$c term=[$term]"
+              curl -s -m 20 -A "MMDE/0.3 (probe)" -G "https://itunes.apple.com/search" --data-urlencode "term=$term" --data-urlencode "entity=album" --data-urlencode "limit=10" --data-urlencode "country=$c" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log(j.resultCount+" results:",(j.results||[]).slice(0,8).map(r=>r.collectionName+" ["+r.trackCount+"]").join(" | "))}catch(e){console.log("not json:",s.slice(0,120))}})'
+              sleep 3
+            done
           done
-      - name: Golden titles against the Worker (real services, no TMDB token)
-        run: BASE_URL=http://127.0.0.1:8788 node scripts/golden.mjs --json=/tmp/golden.json
-      - name: Worker log (errors only)
-        if: always()
-        run: grep -iE "error|exception|exceeded" /tmp/wrangler.log | head -30 || true
