@@ -79,7 +79,8 @@ export function mbReleaseSource(userAgent: string, fetchImpl: typeof fetch = fet
     for (let attempt = 0; ; attempt++) {
       await wait();
       const res = await fetchImpl(url, { headers: uaHeaders(userAgent, { Accept: 'application/json' }) });
-      if (res.status === 503 && attempt < 2) { await new Promise((r) => setTimeout(r, backoff * (attempt + 1))); continue; }
+      // MusicBrainz sheds load at its search endpoint with 503 (seen live on 2026-10-11): wait a little longer each time before giving up.
+      if (res.status === 503 && attempt < 3) { await new Promise((r) => setTimeout(r, backoff * (attempt + 1))); continue; }
       if (!res.ok) throw new Error(`HTTP ${res.status} from MusicBrainz`);
       return res.json();
     }
